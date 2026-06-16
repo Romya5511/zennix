@@ -1,14 +1,25 @@
+import { useEffect, useState } from 'react'
+import { supabase } from './lib/supabase'
+
 function App() {
+  const [status, setStatus] = useState('Connecting...')
+
+  useEffect(() => {
+    async function testConnection() {
+      const { data, error } = await supabase.from('profiles').select('*')
+      if (error) {
+        setStatus('❌ Error: ' + error.message)
+      } else {
+        setStatus('✅ Supabase connected! Tables are ready.')
+      }
+    }
+    testConnection()
+  }, [])
+
   return (
-    <div className="min-h-screen bg-white flex flex-col items-center justify-center px-6">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-indigo-600 mb-2">Zennix</h1>
-        <p className="text-gray-500 text-lg mb-8">Spend together. Stay calm.</p>
-        <button className="bg-indigo-600 text-white px-8 py-3 rounded-full text-lg font-medium">
-          Sign in with Google
-        </button>
-        <p className="text-gray-400 text-sm mt-6">Free for 1 month. No credit card needed.</p>
-      </div>
+    <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
+      <h1>Zennix 🏠</h1>
+      <p>{status}</p>
     </div>
   )
 }
