@@ -1,19 +1,22 @@
 import { useEffect, useState } from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
+import Home from './pages/Home'
+import Setup from './pages/Setup'
+import Join from './pages/Join'
+import Dashboard from './pages/Dashboard'
 
 function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Check if user is already logged in
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       setLoading(false)
     })
 
-    // Listen for login/logout changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
     })
@@ -23,14 +26,26 @@ function App() {
 
   if (loading) return <p style={{ padding: '2rem' }}>Loading...</p>
 
-  if (!user) return <Login />
-
   return (
-    <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h1>Zennix 🏠</h1>
-      <p>Welcome, {user.user_metadata.full_name}! 👋</p>
-      <button onClick={() => supabase.auth.signOut()}>Sign out</button>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        {/* Public route — always accessible */}
+        <Route path="/join" element={<Join />} />
+
+        {/* If not logged in, show Login for everything else */}
+        {!user ? (
+          <Route path="*" element={<Login />} />
+        ) : (
+          <>
+            <Route path="/"          element={<Home />} />
+            <Route path="/setup"     element={<Setup />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            {/* Any unknown URL → go home */}
+            <Route path="*"          element={<Navigate to="/" />} />
+          </>
+        )}
+      </Routes>
+    </BrowserRouter>
   )
 }
 
