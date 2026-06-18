@@ -12,14 +12,11 @@ function Join() {
 
   useEffect(() => {
     async function handleJoin() {
-      // 1. Read invite ID from URL — if present, save to localStorage
-      //    so it survives the Google sign-in redirect
       const idFromUrl = searchParams.get('invite')
       if (idFromUrl) {
         localStorage.setItem(INVITE_KEY, idFromUrl)
       }
 
-      // 2. Read from localStorage as fallback (works after Google redirect)
       const householdId = idFromUrl || localStorage.getItem(INVITE_KEY)
 
       if (!householdId) {
@@ -28,38 +25,34 @@ function Join() {
         return
       }
 
-      // 3. Check if the user is signed in
       const { data: { user } } = await supabase.auth.getUser()
 
       if (!user) {
-        // Not signed in yet — show the Google button
         setStatus('needsLogin')
         return
       }
 
-      // 4. User is signed in — save/update their profile
+      // Save/update their profile
       await supabase.from('profiles').upsert({
         id: user.id,
         full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
         avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
       }, { onConflict: 'id' })
 
-      // 5. Check if they're already in this household
-      const { data: existing } = await supabase
+      // Check if already in ANY household — if yes, just go to dashboard
+      const { data: anyMembership } = await supabase
         .from('household_members')
         .select('household_id')
         .eq('user_id', user.id)
-        .eq('household_id', householdId)
         .maybeSingle()
 
-      if (existing) {
-        // Already a member — clean up and go home
+      if (anyMembership) {
         localStorage.removeItem(INVITE_KEY)
         navigate('/')
         return
       }
 
-      // 6. Check the household exists
+      // Check the household exists
       const { data: household, error: householdError } = await supabase
         .from('households')
         .select('id, name')
@@ -74,19 +67,23 @@ function Join() {
 
       setStatus('joining')
 
-      // 7. Add the user as a member
+      // Add the user as a member
       const { error: joinError } = await supabase
         .from('household_members')
         .insert({ household_id: householdId, user_id: user.id, role: 'member' })
 
       if (joinError) {
+        // If duplicate, they're already in — just go home
+        if (joinError.code === '23505') {
+          localStorage.removeItem(INVITE_KEY)
+          navigate('/')
+          return
+        }
         setStatus('error')
         setErrorMsg('Could not join the household. Please try again.')
         return
       }
 
-      // 8. Clean up localStorage and redirect to / so Home.jsx
-      //    re-checks membership freshly before going to dashboard
       localStorage.removeItem(INVITE_KEY)
       setStatus('done')
       setTimeout(() => navigate('/'), 1500)
