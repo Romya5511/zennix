@@ -15,14 +15,32 @@ function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       setLoading(false)
+
+      // Save profile whenever we detect a session on load
+      if (session?.user) {
+        saveProfile(session.user)
+      }
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
+
+      // Save profile on every sign-in event
+      if (session?.user) {
+        saveProfile(session.user)
+      }
     })
 
     return () => subscription.unsubscribe()
   }, [])
+
+  async function saveProfile(user) {
+    await supabase.from('profiles').upsert({
+      id: user.id,
+      full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
+      avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+    }, { onConflict: 'id' })
+  }
 
   if (loading) return <p style={{ padding: '2rem' }}>Loading...</p>
 
@@ -32,7 +50,6 @@ function App() {
         {/* Public route — always accessible */}
         <Route path="/join" element={<Join />} />
 
-        {/* If not logged in, show Login for everything else */}
         {!user ? (
           <Route path="*" element={<Login />} />
         ) : (
@@ -40,7 +57,6 @@ function App() {
             <Route path="/"          element={<Home />} />
             <Route path="/setup"     element={<Setup />} />
             <Route path="/dashboard" element={<Dashboard />} />
-            {/* Any unknown URL → go home */}
             <Route path="*"          element={<Navigate to="/" />} />
           </>
         )}

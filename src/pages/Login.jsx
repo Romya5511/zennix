@@ -2,11 +2,15 @@ import { supabase } from '../lib/supabase'
 
 function Login() {
   const handleGoogleSignIn = async () => {
+    // Check if there's a pending invite — if so, redirect back to /join after sign-in
+    const pendingInvite = localStorage.getItem('zennix_invite_id')
+    const redirectTo = pendingInvite
+      ? `${window.location.origin}/join`
+      : window.location.origin
+
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: window.location.origin
-      }
+      options: { redirectTo }
     })
   }
 
