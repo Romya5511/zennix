@@ -2,40 +2,49 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
+const INVITE_KEY = 'zennix_invite_id'
+
 function Join() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const householdId = searchParams.get('invite')
-
-  const [status, setStatus] = useState('loading') // loading | needsLogin | joining | error | done
+  const [status, setStatus] = useState('loading')
   const [errorMsg, setErrorMsg] = useState('')
 
   useEffect(() => {
     async function handleJoin() {
-      // Safety check — if no invite ID in URL, something is wrong
+      // 1. Read invite ID from URL — if present, save it to localStorage
+      //    so it survives the Google sign-in redirect
+      const idFromUrl = searchParams.get('invite')
+      if (idFromUrl) {
+        localStorage.setItem(INVITE_KEY, idFromUrl)
+      }
+
+      // 2. Read from localStorage as fallback (works after Google redirect)
+      const householdId = idFromUrl || localStorage.getItem(INVITE_KEY)
+
       if (!householdId) {
         setStatus('error')
-        setErrorMsg('This invite link looks broken. Ask Person A to send it again.')
+        setErrorMsg('This invite link looks broken. Ask your household member to send it again.')
         return
       }
 
-      // Check if Person B is logged in
+      // 3. Check if the user is signed in
       const { data: { user } } = await supabase.auth.getUser()
 
       if (!user) {
-        // Not logged in yet — show Google login button
+        // Not signed in yet — show the Google button
         setStatus('needsLogin')
         return
       }
 
-      // Logged in — save their profile
+      // 4. User is signed in — save/update their profile
       await supabase.from('profiles').upsert({
         id: user.id,
         full_name: user.user_metadata.full_name,
         avatar_url: user.user_metadata.avatar_url,
       }, { onConflict: 'id' })
 
-      // Check if they're already in THIS household
+      // 5. Check if they're already in this household
       const { data: existing } = await supabase
         .from('household_members')
         .select('household_id')
@@ -44,12 +53,13 @@ function Join() {
         .maybeSingle()
 
       if (existing) {
-        // Already a member — just go to dashboard
+        // Already a member — clean up and go to dashboard
+        localStorage.removeItem(INVITE_KEY)
         navigate('/dashboard')
         return
       }
 
-      // Check if household actually exists
+      // 6. Check the household exists
       const { data: household, error: householdError } = await supabase
         .from('households')
         .select('id, name')
@@ -58,13 +68,13 @@ function Join() {
 
       if (householdError || !household) {
         setStatus('error')
-        setErrorMsg('This household no longer exists. Ask Person A to create a new invite.')
+        setErrorMsg('This household no longer exists. Ask your household member to create a new invite.')
         return
       }
 
       setStatus('joining')
 
-      // Add Person B as member
+      // 7. Add the user as a member
       const { error: joinError } = await supabase
         .from('household_members')
         .insert({ household_id: householdId, user_id: user.id, role: 'member' })
@@ -75,20 +85,24 @@ function Join() {
         return
       }
 
+      // 8. Clean up localStorage and go to dashboard
+      localStorage.removeItem(INVITE_KEY)
       setStatus('done')
-      // Short pause so they can see the success message, then go to dashboard
       setTimeout(() => navigate('/dashboard'), 1500)
     }
 
     handleJoin()
-  }, [householdId])
+  }, [])
 
   async function signInWithGoogle() {
+    const householdId = searchParams.get('invite') || localStorage.getItem(INVITE_KEY)
+
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        // After login, come back to this same join URL so the flow continues
-        redirectTo: `https://zennix.vercel.app/join?invite=${householdId}`,
+        // After Google sign-in, come back to /join (no query param needed —
+        // the invite ID is already saved in localStorage)
+        redirectTo: `https://zennix.vercel.app/join`,
       },
     })
   }
