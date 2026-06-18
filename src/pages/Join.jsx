@@ -12,7 +12,7 @@ function Join() {
 
   useEffect(() => {
     async function handleJoin() {
-      // 1. Read invite ID from URL — if present, save it to localStorage
+      // 1. Read invite ID from URL — if present, save to localStorage
       //    so it survives the Google sign-in redirect
       const idFromUrl = searchParams.get('invite')
       if (idFromUrl) {
@@ -40,8 +40,8 @@ function Join() {
       // 4. User is signed in — save/update their profile
       await supabase.from('profiles').upsert({
         id: user.id,
-        full_name: user.user_metadata.full_name,
-        avatar_url: user.user_metadata.avatar_url,
+        full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
+        avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
       }, { onConflict: 'id' })
 
       // 5. Check if they're already in this household
@@ -53,9 +53,9 @@ function Join() {
         .maybeSingle()
 
       if (existing) {
-        // Already a member — clean up and go to dashboard
+        // Already a member — clean up and go home
         localStorage.removeItem(INVITE_KEY)
-        navigate('/dashboard')
+        navigate('/')
         return
       }
 
@@ -85,23 +85,20 @@ function Join() {
         return
       }
 
-      // 8. Clean up localStorage and go to dashboard
+      // 8. Clean up localStorage and redirect to / so Home.jsx
+      //    re-checks membership freshly before going to dashboard
       localStorage.removeItem(INVITE_KEY)
       setStatus('done')
-      setTimeout(() => navigate('/dashboard'), 1500)
+      setTimeout(() => navigate('/'), 1500)
     }
 
     handleJoin()
   }, [])
 
   async function signInWithGoogle() {
-    const householdId = searchParams.get('invite') || localStorage.getItem(INVITE_KEY)
-
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        // After Google sign-in, come back to /join (no query param needed —
-        // the invite ID is already saved in localStorage)
         redirectTo: `https://zennix.vercel.app/join`,
       },
     })
@@ -139,7 +136,7 @@ function Join() {
 
         {status === 'done' && (
           <p style={{ ...styles.message, color: '#16a34a', fontWeight: '600' }}>
-            ✅ You're in! Taking you to your dashboard...
+            ✅ You're in! Taking you home...
           </p>
         )}
 
