@@ -15,8 +15,6 @@ function ListPage() {
 
   const [loading, setLoading] = useState(true)
   const [listId, setListId] = useState(isNew ? null : id)
-  const [householdId, setHouseholdId] = useState(null)
-  const [userId, setUserId] = useState(null)
   const [libraryItems, setLibraryItems] = useState([])
   const [listItems, setListItems] = useState([])
   const [search, setSearch] = useState('')
@@ -25,27 +23,26 @@ function ListPage() {
   const [adding, setAdding] = useState(false)
 
   const listIdRef = useRef(isNew ? null : id)
+  const householdIdRef = useRef(null)
+  const userIdRef = useRef(null)
   const channelRef = useRef(null)
 
-  useEffect(() => { setup() }, [])
-
   useEffect(() => {
-    listIdRef.current = listId
-    if (listId) {
-      subscribeToListItems(listId)
-    }
+    setup()
     return () => {
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current)
-        channelRef.current = null
       }
     }
+  }, [])
+
+  useEffect(() => {
+    listIdRef.current = listId
+    if (listId) subscribeToListItems(listId)
   }, [listId])
 
   function subscribeToListItems(lid) {
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current)
-    }
+    if (channelRef.current) supabase.removeChannel(channelRef.current)
     const channel = supabase
       .channel(`list_items_${lid}`)
       .on(
@@ -67,7 +64,7 @@ function ListPage() {
   async function setup() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { navigate('/'); return }
-    setUserId(user.id)
+    userIdRef.current = user.id
 
     const { data: membership } = await supabase
       .from('household_members')
@@ -76,8 +73,7 @@ function ListPage() {
       .maybeSingle()
 
     if (!membership) { navigate('/'); return }
-    const hid = membership.household_id
-    setHouseholdId(hid)
+    householdIdRef.current = membership.household_id
 
     if (!isNew) {
       const { data: items } = await supabase
@@ -88,7 +84,7 @@ function ListPage() {
       setListItems(items || [])
     }
 
-    await loadLibrary(hid)
+    await loadLibrary(membership.household_id)
     setLoading(false)
   }
 
@@ -114,30 +110,44 @@ function ListPage() {
   async function getOrCreateListId() {
     if (listIdRef.current) return listIdRef.current
 
+    const hid = householdIdRef.current
+    const uid = userIdRef.current
+    if (!hid || !uid) return null
+
+    // Check if active list already exists
     const { data: existing } = await supabase
       .from('grocery_lists')
       .select('id')
-      .eq('household_id', householdId)
+      .eq('household_id', hid)
       .eq('status', 'active')
       .limit(1)
       .maybeSingle()
 
     if (existing) {
-      setListId(existing.id)
       listIdRef.current = existing.id
+      setListId(existing.id)
       window.history.replaceState(null, '', `/list/${existing.id}`)
+      // Load existing items immediately
+      const { data: items } = await supabase
+        .from('list_items')
+        .select('*')
+        .eq('list_id', existing.id)
+        .order('display_order', { ascending: true })
+      setListItems(items || [])
       return existing.id
     }
 
+    // Create new list
     const { data: newList, error } = await supabase
       .from('grocery_lists')
-      .insert({ household_id: householdId, created_by: userId, status: 'active' })
+      .insert({ household_id: hid, created_by: uid, status: 'active' })
       .select()
       .single()
 
     if (error || !newList) return null
-    setListId(newList.id)
+
     listIdRef.current = newList.id
+    setListId(newList.id)
     window.history.replaceState(null, '', `/list/${newList.id}`)
     return newList.id
   }
@@ -155,7 +165,7 @@ function ListPage() {
     )
     if (already) { setAdding(false); return }
 
-    const { error } = await supabase
+    const { data: inserted, error } = await supabase
       .from('list_items')
       .insert({
         list_id: currentListId,
@@ -165,8 +175,14 @@ function ListPage() {
         tab_status: 'to_buy',
         display_order: listItems.length,
       })
+      .select()
+      .single()
 
-    if (!error) {
+    if (!error && inserted) {
+      // Update local state immediately — don't wait for realtime
+      setListItems(prev => [...prev, inserted])
+
+      // Increment times_added
       await supabase
         .from('household_items')
         .update({ times_added: (libraryItem.times_added || 0) + 1 })
@@ -187,7 +203,9 @@ function ListPage() {
 
   async function addCustomItem() {
     const name = search.trim()
-    if (!name || !householdId) return
+    if (!name) return
+    const hid = householdIdRef.current
+    if (!hid) return
     setAdding(true)
 
     const currentListId = await getOrCreateListId()
@@ -195,19 +213,31 @@ function ListPage() {
 
     const { data: libItem } = await supabase
       .from('household_items')
-      .insert({ household_id: householdId, item_name: name, last_quantity: '1', times_added: 1 })
+      .insert({
+        household_id: hid,
+        item_name: name,
+        last_quantity: '1',
+        times_added: 1,
+      })
       .select().single()
 
     if (libItem) {
       setLibraryItems(prev => [libItem, ...prev])
-      await supabase.from('list_items').insert({
-        list_id: currentListId,
-        household_item_id: libItem.id,
-        item_name: libItem.item_name,
-        quantity: '1',
-        tab_status: 'to_buy',
-        display_order: listItems.length,
-      })
+
+      const { data: inserted } = await supabase
+        .from('list_items')
+        .insert({
+          list_id: currentListId,
+          household_item_id: libItem.id,
+          item_name: libItem.item_name,
+          quantity: '1',
+          tab_status: 'to_buy',
+          display_order: listItems.length,
+        })
+        .select()
+        .single()
+
+      if (inserted) setListItems(prev => [...prev, inserted])
     }
 
     setAdding(false)
@@ -289,7 +319,10 @@ function ListPage() {
                     onChange={e => updateQty(item.id, e.target.value)}
                     placeholder="Qty"
                   />
-                  <button style={styles.removeBtn} onClick={() => removeItem(item.id)}>✕</button>
+                  <button
+                    style={styles.removeBtn}
+                    onClick={() => removeItem(item.id)}
+                  >✕</button>
                 </div>
               ))
             )}
@@ -297,11 +330,15 @@ function ListPage() {
         )}
 
         {activeTab === 'pricing' && (
-          <p style={styles.emptyNote}>Items you've bought appear here. Coming on Day 6.</p>
+          <p style={styles.emptyNote}>
+            Items you've bought appear here. Coming on Day 6.
+          </p>
         )}
 
         {activeTab === 'done' && (
-          <p style={styles.emptyNote}>Completed items appear here. Coming on Day 6.</p>
+          <p style={styles.emptyNote}>
+            Completed items appear here. Coming on Day 6.
+          </p>
         )}
       </div>
 
@@ -315,19 +352,15 @@ function ListPage() {
         </button>
       )}
 
-      {/* Bottom sheet — no overlay blocking clicks */}
+      {/* Bottom sheet */}
       {showLibrary && (
         <>
-          {/* Overlay — pointer events none so it doesn't block sheet */}
           <div
             style={styles.overlay}
             onClick={() => { setShowLibrary(false); setSearch('') }}
           />
-
-          {/* Bottom sheet */}
           <div style={styles.bottomSheet}>
             <div style={styles.handle} />
-
             <div style={styles.sheetHeader}>
               <p style={styles.sheetTitle}>Add items</p>
               <button
