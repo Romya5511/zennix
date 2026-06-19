@@ -114,7 +114,6 @@ function ListPage() {
     const uid = userIdRef.current
     if (!hid || !uid) return null
 
-    // Check if active list already exists
     const { data: existing } = await supabase
       .from('grocery_lists')
       .select('id')
@@ -127,7 +126,6 @@ function ListPage() {
       listIdRef.current = existing.id
       setListId(existing.id)
       window.history.replaceState(null, '', `/list/${existing.id}`)
-      // Load existing items immediately
       const { data: items } = await supabase
         .from('list_items')
         .select('*')
@@ -137,7 +135,6 @@ function ListPage() {
       return existing.id
     }
 
-    // Create new list
     const { data: newList, error } = await supabase
       .from('grocery_lists')
       .insert({ household_id: hid, created_by: uid, status: 'active' })
@@ -179,7 +176,7 @@ function ListPage() {
       .single()
 
     if (!error && inserted) {
-      // Update local state immediately — don't wait for realtime
+      // Update local state immediately
       setListItems(prev => [...prev, inserted])
 
       // Increment times_added
@@ -196,9 +193,8 @@ function ListPage() {
       )
     }
 
+    // Keep sheet open so user can keep adding items
     setAdding(false)
-    setShowLibrary(false)
-    setSearch('')
   }
 
   async function addCustomItem() {
@@ -240,8 +236,8 @@ function ListPage() {
       if (inserted) setListItems(prev => [...prev, inserted])
     }
 
+    // Clear search but keep sheet open
     setAdding(false)
-    setShowLibrary(false)
     setSearch('')
   }
 
