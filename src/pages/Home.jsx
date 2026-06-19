@@ -10,7 +10,6 @@ function Home() {
   const [activeList, setActiveList] = useState(null)
   const [itemCount, setItemCount] = useState(0)
   const [creatorName, setCreatorName] = useState('')
-  const [creating, setCreating] = useState(false)
 
   useEffect(() => { loadHome() }, [])
 
@@ -18,7 +17,6 @@ function Home() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { navigate('/'); return }
 
-    // Get profile
     const { data: profileData } = await supabase
       .from('profiles')
       .select('id, full_name')
@@ -26,7 +24,6 @@ function Home() {
       .maybeSingle()
     setProfile(profileData)
 
-    // Get household
     const { data: membership } = await supabase
       .from('household_members')
       .select('household_id')
@@ -37,79 +34,39 @@ function Home() {
     const hid = membership.household_id
     setHouseholdId(hid)
 
-    // Check for active list
-    const { data: list } = await supabase
+    // Only show active list if it has at least 1 item
+    const { data: lists } = await supabase
       .from('grocery_lists')
       .select('id, created_at, created_by, status')
       .eq('household_id', hid)
       .eq('status', 'active')
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+      .limit(5)
 
-    if (list) {
-      setActiveList(list)
+    if (lists && lists.length > 0) {
+      for (const list of lists) {
+        const { count } = await supabase
+          .from('list_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('list_id', list.id)
 
-      // Count items
-      const { count } = await supabase
-        .from('list_items')
-        .select('id', { count: 'exact', head: true })
-        .eq('list_id', list.id)
-      setItemCount(count || 0)
+        if (count && count > 0) {
+          // Found an active list with items — show it
+          setActiveList(list)
+          setItemCount(count)
 
-      // Get creator name
-      const { data: creator } = await supabase
-        .from('profiles')
-        .select('full_name')
-        .eq('id', list.created_by)
-        .maybeSingle()
-      setCreatorName(creator?.full_name || 'Someone')
+          const { data: creator } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', list.created_by)
+            .maybeSingle()
+          setCreatorName(creator?.full_name || 'Someone')
+          break
+        }
+      }
     }
 
     setLoading(false)
-  }
-
-  async function handleCreateList() {
-    if (creating || !householdId) return
-    setCreating(true)
-
-    // Get current user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setCreating(false); return }
-
-    // Check if active list already exists — navigate to it instead
-    const { data: existing } = await supabase
-      .from('grocery_lists')
-      .select('id')
-      .eq('household_id', householdId)
-      .eq('status', 'active')
-      .limit(1)
-      .maybeSingle()
-
-    if (existing) {
-      navigate(`/list/${existing.id}`)
-      return
-    }
-
-    // Create new list
-    const { data: newList, error } = await supabase
-      .from('grocery_lists')
-      .insert({
-        household_id: householdId,
-        created_by: user.id,
-        status: 'active',
-      })
-      .select()
-      .single()
-
-    if (error || !newList) {
-      setCreating(false)
-      return
-    }
-
-    // Navigate to the new list
-    // (Push notifications wired up on Day 10)
-    navigate(`/list/${newList.id}`)
   }
 
   function getGreeting() {
@@ -177,14 +134,10 @@ function Home() {
               Tap below to start one — your partner will be notified.
             </p>
             <button
-              style={{
-                ...styles.createBtn,
-                opacity: creating ? 0.7 : 1,
-              }}
-              onClick={handleCreateList}
-              disabled={creating}
+              style={styles.createBtn}
+              onClick={() => navigate('/list/new')}
             >
-              {creating ? 'Creating...' : '+ Create grocery list'}
+              + Create grocery list
             </button>
           </div>
         )}
@@ -228,20 +181,14 @@ const styles = {
     color: '#888',
     textAlign: 'center',
   },
-  greeting: {
-    marginBottom: '0.5rem',
-  },
+  greeting: { marginBottom: '0.5rem' },
   greetingText: {
     fontSize: '1.5rem',
     fontWeight: '700',
     color: '#111',
     margin: '0 0 0.25rem',
   },
-  subText: {
-    fontSize: '0.9rem',
-    color: '#888',
-    margin: 0,
-  },
+  subText: { fontSize: '0.9rem', color: '#888', margin: 0 },
   listCard: {
     background: '#fff',
     borderRadius: '16px',
@@ -263,25 +210,14 @@ const styles = {
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
   },
-  listDate: {
-    fontSize: '0.8rem',
-    color: '#aaa',
-  },
+  listDate: { fontSize: '0.8rem', color: '#aaa' },
   listCardBody: {
     display: 'flex',
     flexDirection: 'column',
     gap: '0.25rem',
   },
-  listStat: {
-    fontSize: '1.1rem',
-    color: '#111',
-    margin: 0,
-  },
-  listCreator: {
-    fontSize: '0.85rem',
-    color: '#888',
-    margin: 0,
-  },
+  listStat: { fontSize: '1.1rem', color: '#111', margin: 0 },
+  listCreator: { fontSize: '0.85rem', color: '#888', margin: 0 },
   openListBtn: {
     width: '100%',
     padding: '0.85rem',
@@ -328,10 +264,7 @@ const styles = {
     cursor: 'pointer',
     marginTop: '0.25rem',
   },
-  placeholderRow: {
-    display: 'flex',
-    gap: '0.75rem',
-  },
+  placeholderRow: { display: 'flex', gap: '0.75rem' },
   placeholderBtn: {
     flex: 1,
     background: '#fff',
@@ -351,11 +284,7 @@ const styles = {
     fontWeight: '600',
     color: '#444',
   },
-  comingSoon: {
-    fontSize: '0.7rem',
-    color: '#aaa',
-    fontWeight: '500',
-  },
+  comingSoon: { fontSize: '0.7rem', color: '#aaa', fontWeight: '500' },
 }
 
 export default Home

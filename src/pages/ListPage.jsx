@@ -14,7 +14,7 @@ function ListPage() {
   const isNew = id === 'new'
 
   const [loading, setLoading] = useState(true)
-  const [listId, setListId] = useState(null)
+  const [listId, setListId] = useState(isNew ? null : id)
   const [householdId, setHouseholdId] = useState(null)
   const [userId, setUserId] = useState(null)
   const [libraryItems, setLibraryItems] = useState([])
@@ -41,20 +41,8 @@ function ListPage() {
     const hid = membership.household_id
     setHouseholdId(hid)
 
-    let lid = id
-
-    if (isNew) {
-      const { data: newList, error } = await supabase
-        .from('grocery_lists')
-        .insert({ household_id: hid, created_by: user.id, status: 'active' })
-        .select()
-        .single()
-      if (error) { navigate('/'); return }
-      lid = newList.id
-      setListId(lid)
-      window.history.replaceState(null, '', `/list/${lid}`)
-    } else {
-      setListId(id)
+    // If opening existing list, load its items
+    if (!isNew) {
       const { data: items } = await supabase
         .from('list_items')
         .select('*')
@@ -75,7 +63,6 @@ function ListPage() {
       .order('times_added', { ascending: false })
 
     if (!library || library.length === 0) {
-      // Seed 20 Indian items for new households
       const seedRows = SEED_ITEMS.map(name => ({
         household_id: hid,
         item_name: name,
@@ -92,21 +79,58 @@ function ListPage() {
     }
   }
 
+  // Creates the list in DB only when first item is added
+  async function getOrCreateListId() {
+    if (listId) return listId
+
+    // Check if an active list already exists for this household
+    const { data: existing } = await supabase
+      .from('grocery_lists')
+      .select('id')
+      .eq('household_id', householdId)
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle()
+
+    if (existing) {
+      setListId(existing.id)
+      window.history.replaceState(null, '', `/list/${existing.id}`)
+      return existing.id
+    }
+
+    // Create new list
+    const { data: newList, error } = await supabase
+      .from('grocery_lists')
+      .insert({
+        household_id: householdId,
+        created_by: userId,
+        status: 'active',
+      })
+      .select()
+      .single()
+
+    if (error || !newList) return null
+
+    setListId(newList.id)
+    window.history.replaceState(null, '', `/list/${newList.id}`)
+    return newList.id
+  }
+
   async function addItemFromLibrary(libraryItem) {
     if (adding) return
-    const currentListId = listId || id
-    if (!currentListId) return
+    setAdding(true)
+
+    // Create list on first item tap
+    const currentListId = await getOrCreateListId()
+    if (!currentListId) { setAdding(false); return }
 
     // Don't add if already in To Buy
     const already = listItems.find(
       i => i.item_name.toLowerCase() === libraryItem.item_name.toLowerCase()
         && i.tab_status === 'to_buy'
     )
-    if (already) return
+    if (already) { setAdding(false); return }
 
-    setAdding(true)
-
-    // Insert into list_items
     const newItem = {
       list_id: currentListId,
       household_item_id: libraryItem.id,
@@ -125,13 +149,12 @@ function ListPage() {
     if (!error && data) {
       setListItems(prev => [...prev, data])
 
-      // Increment times_added in household_items
+      // Increment times_added
       await supabase
         .from('household_items')
         .update({ times_added: (libraryItem.times_added || 0) + 1 })
         .eq('id', libraryItem.id)
 
-      // Update local library state
       setLibraryItems(prev =>
         prev.map(i => i.id === libraryItem.id
           ? { ...i, times_added: (i.times_added || 0) + 1 }
@@ -148,13 +171,12 @@ function ListPage() {
   async function addCustomItem() {
     const name = search.trim()
     if (!name || !householdId) return
-    const currentListId = listId || id
-    if (!currentListId) return
-
     setAdding(true)
 
-    // Create new household_items entry
-    const { data: libItem, error: libError } = await supabase
+    const currentListId = await getOrCreateListId()
+    if (!currentListId) { setAdding(false); return }
+
+    const { data: libItem } = await supabase
       .from('household_items')
       .insert({
         household_id: householdId,
@@ -165,29 +187,23 @@ function ListPage() {
       .select()
       .single()
 
-    if (libError || !libItem) { setAdding(false); return }
+    if (libItem) {
+      setLibraryItems(prev => [libItem, ...prev])
 
-    // Add to library list
-    setLibraryItems(prev => [libItem, ...prev])
+      const { data } = await supabase
+        .from('list_items')
+        .insert({
+          list_id: currentListId,
+          household_item_id: libItem.id,
+          item_name: libItem.item_name,
+          quantity: '1',
+          tab_status: 'to_buy',
+          display_order: listItems.length,
+        })
+        .select()
+        .single()
 
-    // Insert into list_items
-    const newItem = {
-      list_id: currentListId,
-      household_item_id: libItem.id,
-      item_name: libItem.item_name,
-      quantity: '1',
-      tab_status: 'to_buy',
-      display_order: listItems.length,
-    }
-
-    const { data, error } = await supabase
-      .from('list_items')
-      .insert(newItem)
-      .select()
-      .single()
-
-    if (!error && data) {
-      setListItems(prev => [...prev, data])
+      if (data) setListItems(prev => [...prev, data])
     }
 
     setAdding(false)
@@ -213,7 +229,6 @@ function ListPage() {
     item.item_name.toLowerCase().includes(search.toLowerCase())
   )
 
-  // Show "Add [text]" chip when no match found
   const showAddCustomChip = search.trim().length > 0 &&
     !filteredLibrary.find(
       i => i.item_name.toLowerCase() === search.trim().toLowerCase()
@@ -263,7 +278,6 @@ function ListPage() {
       {/* Tab content */}
       <div style={styles.content}>
 
-        {/* TO BUY TAB */}
         {activeTab === 'to_buy' && (
           <div>
             {toBuyItems.length === 0 ? (
@@ -280,24 +294,21 @@ function ListPage() {
                     onChange={e => updateQty(item.id, e.target.value)}
                     placeholder="Qty"
                   />
-                  <button
-                    style={styles.removeBtn}
-                    onClick={() => removeItem(item.id)}
-                  >✕</button>
+                  <button style={styles.removeBtn} onClick={() => removeItem(item.id)}>
+                    ✕
+                  </button>
                 </div>
               ))
             )}
           </div>
         )}
 
-        {/* PRICING TAB */}
         {activeTab === 'pricing' && (
           <p style={styles.emptyNote}>
             Items you've bought appear here. Coming on Day 6.
           </p>
         )}
 
-        {/* DONE TAB */}
         {activeTab === 'done' && (
           <p style={styles.emptyNote}>
             Completed items appear here. Coming on Day 6.
@@ -306,7 +317,7 @@ function ListPage() {
 
       </div>
 
-      {/* Floating Add Items button — only on To Buy tab */}
+      {/* Floating Add Items button */}
       {activeTab === 'to_buy' && (
         <button
           style={styles.fab}
@@ -316,31 +327,20 @@ function ListPage() {
         </button>
       )}
 
-      {/* Bottom sheet overlay */}
+      {/* Overlay */}
       {showLibrary && (
-        <div
-          style={styles.overlay}
-          onClick={() => setShowLibrary(false)}
-        />
+        <div style={styles.overlay} onClick={() => setShowLibrary(false)} />
       )}
 
-      {/* Item Library bottom sheet */}
+      {/* Bottom sheet */}
       {showLibrary && (
         <div style={styles.bottomSheet}>
-
-          {/* Sheet handle */}
           <div style={styles.handle} />
-
-          {/* Sheet header */}
           <div style={styles.sheetHeader}>
             <p style={styles.sheetTitle}>Add items</p>
-            <button
-              style={styles.closeBtn}
-              onClick={() => { setShowLibrary(false); setSearch('') }}
-            >✕</button>
+            <button style={styles.closeBtn} onClick={() => { setShowLibrary(false); setSearch('') }}>✕</button>
           </div>
 
-          {/* Search bar */}
           <input
             style={styles.searchInput}
             placeholder="Search or type a new item..."
@@ -349,18 +349,12 @@ function ListPage() {
             autoFocus
           />
 
-          {/* "Add [typed text]" chip — appears when no match */}
           {showAddCustomChip && (
-            <button
-              style={styles.addCustomChip}
-              onClick={addCustomItem}
-              disabled={adding}
-            >
+            <button style={styles.addCustomChip} onClick={addCustomItem} disabled={adding}>
               + Add "{search.trim()}"
             </button>
           )}
 
-          {/* Item grid */}
           <div style={styles.grid}>
             {filteredLibrary.map(item => {
               const inList = toBuyItems.find(
@@ -369,10 +363,7 @@ function ListPage() {
               return (
                 <button
                   key={item.id}
-                  style={inList
-                    ? { ...styles.chip, ...styles.chipAdded }
-                    : styles.chip
-                  }
+                  style={inList ? { ...styles.chip, ...styles.chipAdded } : styles.chip}
                   onClick={() => !inList && addItemFromLibrary(item)}
                   disabled={adding}
                 >
@@ -381,7 +372,6 @@ function ListPage() {
               )
             })}
           </div>
-
         </div>
       )}
 
@@ -413,12 +403,7 @@ const styles = {
     padding: 0,
     fontWeight: '600',
   },
-  title: {
-    fontSize: '1.1rem',
-    fontWeight: '700',
-    margin: 0,
-    color: '#111',
-  },
+  title: { fontSize: '1.1rem', fontWeight: '700', margin: 0, color: '#111' },
   tabs: {
     display: 'flex',
     background: '#fff',
@@ -462,12 +447,7 @@ const styles = {
     marginBottom: '0.5rem',
     boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
   },
-  itemName: {
-    flex: 1,
-    fontSize: '0.95rem',
-    fontWeight: '500',
-    color: '#111',
-  },
+  itemName: { flex: 1, fontSize: '0.95rem', fontWeight: '500', color: '#111' },
   qtyInput: {
     width: '60px',
     padding: '0.35rem 0.5rem',
@@ -533,12 +513,7 @@ const styles = {
     alignItems: 'center',
     marginBottom: '1rem',
   },
-  sheetTitle: {
-    fontSize: '1rem',
-    fontWeight: '700',
-    color: '#111',
-    margin: 0,
-  },
+  sheetTitle: { fontSize: '1rem', fontWeight: '700', color: '#111', margin: 0 },
   closeBtn: {
     background: 'none',
     border: 'none',
