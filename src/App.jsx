@@ -6,6 +6,7 @@ import Home from './pages/Home'
 import Setup from './pages/Setup'
 import Join from './pages/Join'
 import Dashboard from './pages/Dashboard'
+import ListPage from './pages/ListPage'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -57,6 +58,7 @@ function App() {
             <Route path="/"          element={<Home />} />
             <Route path="/setup"     element={<Setup />} />
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/list/:id"  element={<ListPage />} />
             <Route path="*"          element={<Navigate to="/" />} />
           </>
         )}
