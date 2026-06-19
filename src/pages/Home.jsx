@@ -5,24 +5,20 @@ import { supabase } from '../lib/supabase'
 function Home() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
-  const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [householdId, setHouseholdId] = useState(null)
   const [activeList, setActiveList] = useState(null)
   const [itemCount, setItemCount] = useState(0)
   const [creatorName, setCreatorName] = useState('')
+  const [creating, setCreating] = useState(false)
 
-  useEffect(() => {
-    loadHome()
-  }, [])
+  useEffect(() => { loadHome() }, [])
 
   async function loadHome() {
-    // 1. Get logged in user
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { navigate('/login'); return }
-    setUser(user)
+    if (!user) { navigate('/'); return }
 
-    // 2. Get their profile (display name)
+    // Get profile
     const { data: profileData } = await supabase
       .from('profiles')
       .select('id, full_name')
@@ -30,22 +26,18 @@ function Home() {
       .maybeSingle()
     setProfile(profileData)
 
-    // 3. Get their household
+    // Get household
     const { data: membership } = await supabase
       .from('household_members')
       .select('household_id')
       .eq('user_id', user.id)
       .maybeSingle()
 
-    if (!membership) {
-      navigate('/setup')
-      return
-    }
-
+    if (!membership) { navigate('/setup'); return }
     const hid = membership.household_id
     setHouseholdId(hid)
 
-    // 4. Check for an active grocery list
+    // Check for active list
     const { data: list } = await supabase
       .from('grocery_lists')
       .select('id, created_at, created_by, status')
@@ -58,14 +50,14 @@ function Home() {
     if (list) {
       setActiveList(list)
 
-      // 5. Count items in that list
+      // Count items
       const { count } = await supabase
         .from('list_items')
         .select('id', { count: 'exact', head: true })
         .eq('list_id', list.id)
       setItemCount(count || 0)
 
-      // 6. Get creator's name
+      // Get creator name
       const { data: creator } = await supabase
         .from('profiles')
         .select('full_name')
@@ -75,6 +67,49 @@ function Home() {
     }
 
     setLoading(false)
+  }
+
+  async function handleCreateList() {
+    if (creating || !householdId) return
+    setCreating(true)
+
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setCreating(false); return }
+
+    // Check if active list already exists — navigate to it instead
+    const { data: existing } = await supabase
+      .from('grocery_lists')
+      .select('id')
+      .eq('household_id', householdId)
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle()
+
+    if (existing) {
+      navigate(`/list/${existing.id}`)
+      return
+    }
+
+    // Create new list
+    const { data: newList, error } = await supabase
+      .from('grocery_lists')
+      .insert({
+        household_id: householdId,
+        created_by: user.id,
+        status: 'active',
+      })
+      .select()
+      .single()
+
+    if (error || !newList) {
+      setCreating(false)
+      return
+    }
+
+    // Navigate to the new list
+    // (Push notifications wired up on Day 10)
+    navigate(`/list/${newList.id}`)
   }
 
   function getGreeting() {
@@ -90,8 +125,7 @@ function Home() {
   }
 
   function formatDate(dateStr) {
-    const date = new Date(dateStr)
-    return date.toLocaleDateString('en-IN', {
+    return new Date(dateStr).toLocaleDateString('en-IN', {
       day: 'numeric', month: 'short', year: 'numeric'
     })
   }
@@ -123,14 +157,12 @@ function Home() {
               <span style={styles.activeBadge}>● Active list</span>
               <span style={styles.listDate}>{formatDate(activeList.created_at)}</span>
             </div>
-
             <div style={styles.listCardBody}>
               <p style={styles.listStat}>
                 🛒 <strong>{itemCount}</strong> {itemCount === 1 ? 'item' : 'items'}
               </p>
               <p style={styles.listCreator}>Created by {creatorName}</p>
             </div>
-
             <button
               style={styles.openListBtn}
               onClick={() => navigate(`/list/${activeList.id}`)}
@@ -145,22 +177,25 @@ function Home() {
               Tap below to start one — your partner will be notified.
             </p>
             <button
-              style={styles.createBtn}
-              onClick={() => navigate('/list/new')}
+              style={{
+                ...styles.createBtn,
+                opacity: creating ? 0.7 : 1,
+              }}
+              onClick={handleCreateList}
+              disabled={creating}
             >
-              + Create grocery list
+              {creating ? 'Creating...' : '+ Create grocery list'}
             </button>
           </div>
         )}
 
-        {/* Placeholder buttons for later days */}
+        {/* Placeholder buttons */}
         <div style={styles.placeholderRow}>
           <button style={styles.placeholderBtn} disabled>
             <span style={styles.placeholderIcon}>📅</span>
             <span style={styles.placeholderLabel}>Fixed costs</span>
             <span style={styles.comingSoon}>Coming soon</span>
           </button>
-
           <button style={styles.placeholderBtn} disabled>
             <span style={styles.placeholderIcon}>📊</span>
             <span style={styles.placeholderLabel}>Spend history</span>
@@ -310,9 +345,7 @@ const styles = {
     cursor: 'not-allowed',
     opacity: 0.6,
   },
-  placeholderIcon: {
-    fontSize: '1.5rem',
-  },
+  placeholderIcon: { fontSize: '1.5rem' },
   placeholderLabel: {
     fontSize: '0.85rem',
     fontWeight: '600',
