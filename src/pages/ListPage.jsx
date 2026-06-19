@@ -3,10 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
 const SEED_ITEMS = [
-  'Atta', 'Chawal', 'Dal', 'Doodh', 'Dahi',
-  'Sabzi', 'Pyaaz', 'Tamatar', 'Aloo', 'Lahsun',
-  'Adrak', 'Tel', 'Namak', 'Cheeni', 'Chai',
-  'Sabun', 'Shampoo', 'Toothpaste', 'Eggs', 'Bread'
+  'Atta', 'Doodh', 'Chawal', 'Dal', 'Chini', 'Namak', 'Tel', 'Sabzi',
+  'Pyaaz', 'Tamatar', 'Adrak', 'Lahsun', 'Haldi', 'Jeera', 'Dhaniya',
+  'Sabun', 'Shampoo', 'Chai Patti', 'Biscuit', 'Bread'
 ]
 
 function ListPage() {
@@ -17,17 +16,20 @@ function ListPage() {
   const [loading, setLoading] = useState(true)
   const [listId, setListId] = useState(null)
   const [householdId, setHouseholdId] = useState(null)
+  const [userId, setUserId] = useState(null)
   const [libraryItems, setLibraryItems] = useState([])
   const [listItems, setListItems] = useState([])
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState('to_buy')
   const [showLibrary, setShowLibrary] = useState(false)
+  const [adding, setAdding] = useState(false)
 
   useEffect(() => { setup() }, [])
 
   async function setup() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { navigate('/'); return }
+    setUserId(user.id)
 
     const { data: membership } = await supabase
       .from('household_members')
@@ -61,7 +63,11 @@ function ListPage() {
       setListItems(items || [])
     }
 
-    // Load or seed library
+    await loadLibrary(hid)
+    setLoading(false)
+  }
+
+  async function loadLibrary(hid) {
     const { data: library } = await supabase
       .from('household_items')
       .select('*')
@@ -69,29 +75,38 @@ function ListPage() {
       .order('times_added', { ascending: false })
 
     if (!library || library.length === 0) {
+      // Seed 20 Indian items for new households
       const seedRows = SEED_ITEMS.map(name => ({
-        household_id: hid, item_name: name, last_quantity: '1', times_added: 0,
+        household_id: hid,
+        item_name: name,
+        last_quantity: '1',
+        times_added: 0,
       }))
       const { data: seeded } = await supabase
-        .from('household_items').insert(seedRows).select()
+        .from('household_items')
+        .insert(seedRows)
+        .select()
       setLibraryItems(seeded || [])
     } else {
       setLibraryItems(library)
     }
-
-    setLoading(false)
   }
 
-  async function addItem(libraryItem) {
+  async function addItemFromLibrary(libraryItem) {
+    if (adding) return
     const currentListId = listId || id
     if (!currentListId) return
 
+    // Don't add if already in To Buy
     const already = listItems.find(
       i => i.item_name.toLowerCase() === libraryItem.item_name.toLowerCase()
         && i.tab_status === 'to_buy'
     )
     if (already) return
 
+    setAdding(true)
+
+    // Insert into list_items
     const newItem = {
       list_id: currentListId,
       household_item_id: libraryItem.id,
@@ -102,27 +117,82 @@ function ListPage() {
     }
 
     const { data, error } = await supabase
-      .from('list_items').insert(newItem).select().single()
+      .from('list_items')
+      .insert(newItem)
+      .select()
+      .single()
 
     if (!error && data) {
       setListItems(prev => [...prev, data])
-      setSearch('')
+
+      // Increment times_added in household_items
+      await supabase
+        .from('household_items')
+        .update({ times_added: (libraryItem.times_added || 0) + 1 })
+        .eq('id', libraryItem.id)
+
+      // Update local library state
+      setLibraryItems(prev =>
+        prev.map(i => i.id === libraryItem.id
+          ? { ...i, times_added: (i.times_added || 0) + 1 }
+          : i
+        )
+      )
     }
+
+    setAdding(false)
+    setShowLibrary(false)
+    setSearch('')
   }
 
   async function addCustomItem() {
     const name = search.trim()
-    if (!name) return
+    if (!name || !householdId) return
+    const currentListId = listId || id
+    if (!currentListId) return
 
-    const { data: libItem } = await supabase
+    setAdding(true)
+
+    // Create new household_items entry
+    const { data: libItem, error: libError } = await supabase
       .from('household_items')
-      .insert({ household_id: householdId, item_name: name, last_quantity: '1', times_added: 1 })
-      .select().single()
+      .insert({
+        household_id: householdId,
+        item_name: name,
+        last_quantity: '1',
+        times_added: 1,
+      })
+      .select()
+      .single()
 
-    if (libItem) {
-      setLibraryItems(prev => [libItem, ...prev])
-      await addItem(libItem)
+    if (libError || !libItem) { setAdding(false); return }
+
+    // Add to library list
+    setLibraryItems(prev => [libItem, ...prev])
+
+    // Insert into list_items
+    const newItem = {
+      list_id: currentListId,
+      household_item_id: libItem.id,
+      item_name: libItem.item_name,
+      quantity: '1',
+      tab_status: 'to_buy',
+      display_order: listItems.length,
     }
+
+    const { data, error } = await supabase
+      .from('list_items')
+      .insert(newItem)
+      .select()
+      .single()
+
+    if (!error && data) {
+      setListItems(prev => [...prev, data])
+    }
+
+    setAdding(false)
+    setShowLibrary(false)
+    setSearch('')
   }
 
   async function updateQty(itemId, qty) {
@@ -135,7 +205,6 @@ function ListPage() {
     await supabase.from('list_items').delete().eq('id', itemId)
   }
 
-  // Filter items by tab — this is the key fix
   const toBuyItems = listItems.filter(i => i.tab_status === 'to_buy')
   const pricingItems = listItems.filter(i => i.tab_status === 'pricing')
   const doneItems = listItems.filter(i => i.tab_status === 'done')
@@ -144,8 +213,11 @@ function ListPage() {
     item.item_name.toLowerCase().includes(search.toLowerCase())
   )
 
-  const showAddCustom = search.trim().length > 0 &&
-    !filteredLibrary.find(i => i.item_name.toLowerCase() === search.trim().toLowerCase())
+  // Show "Add [text]" chip when no match found
+  const showAddCustomChip = search.trim().length > 0 &&
+    !filteredLibrary.find(
+      i => i.item_name.toLowerCase() === search.trim().toLowerCase()
+    )
 
   if (loading) {
     return (
@@ -208,9 +280,10 @@ function ListPage() {
                     onChange={e => updateQty(item.id, e.target.value)}
                     placeholder="Qty"
                   />
-                  <button style={styles.removeBtn} onClick={() => removeItem(item.id)}>
-                    ✕
-                  </button>
+                  <button
+                    style={styles.removeBtn}
+                    onClick={() => removeItem(item.id)}
+                  >✕</button>
                 </div>
               ))
             )}
@@ -220,27 +293,54 @@ function ListPage() {
         {/* PRICING TAB */}
         {activeTab === 'pricing' && (
           <p style={styles.emptyNote}>
-            Items you've bought appear here. We build this on Day 6.
+            Items you've bought appear here. Coming on Day 6.
           </p>
         )}
 
         {/* DONE TAB */}
         {activeTab === 'done' && (
           <p style={styles.emptyNote}>
-            Completed items appear here. We build this on Day 6.
+            Completed items appear here. Coming on Day 6.
           </p>
         )}
 
       </div>
 
-      {/* Item Library drawer */}
+      {/* Floating Add Items button — only on To Buy tab */}
+      {activeTab === 'to_buy' && (
+        <button
+          style={styles.fab}
+          onClick={() => { setShowLibrary(true); setSearch('') }}
+        >
+          + Add items
+        </button>
+      )}
+
+      {/* Bottom sheet overlay */}
       {showLibrary && (
-        <div style={styles.libraryDrawer}>
-          <div style={styles.libraryHeader}>
-            <p style={styles.libraryTitle}>Add items</p>
-            <button style={styles.closeBtn} onClick={() => setShowLibrary(false)}>✕</button>
+        <div
+          style={styles.overlay}
+          onClick={() => setShowLibrary(false)}
+        />
+      )}
+
+      {/* Item Library bottom sheet */}
+      {showLibrary && (
+        <div style={styles.bottomSheet}>
+
+          {/* Sheet handle */}
+          <div style={styles.handle} />
+
+          {/* Sheet header */}
+          <div style={styles.sheetHeader}>
+            <p style={styles.sheetTitle}>Add items</p>
+            <button
+              style={styles.closeBtn}
+              onClick={() => { setShowLibrary(false); setSearch('') }}
+            >✕</button>
           </div>
 
+          {/* Search bar */}
           <input
             style={styles.searchInput}
             placeholder="Search or type a new item..."
@@ -249,12 +349,18 @@ function ListPage() {
             autoFocus
           />
 
-          {showAddCustom && (
-            <button style={styles.addCustomBtn} onClick={addCustomItem}>
+          {/* "Add [typed text]" chip — appears when no match */}
+          {showAddCustomChip && (
+            <button
+              style={styles.addCustomChip}
+              onClick={addCustomItem}
+              disabled={adding}
+            >
               + Add "{search.trim()}"
             </button>
           )}
 
+          {/* Item grid */}
           <div style={styles.grid}>
             {filteredLibrary.map(item => {
               const inList = toBuyItems.find(
@@ -263,22 +369,20 @@ function ListPage() {
               return (
                 <button
                   key={item.id}
-                  style={inList ? { ...styles.chip, ...styles.chipAdded } : styles.chip}
-                  onClick={() => addItem(item)}
+                  style={inList
+                    ? { ...styles.chip, ...styles.chipAdded }
+                    : styles.chip
+                  }
+                  onClick={() => !inList && addItemFromLibrary(item)}
+                  disabled={adding}
                 >
                   {inList ? '✓ ' : ''}{item.item_name}
                 </button>
               )
             })}
           </div>
-        </div>
-      )}
 
-      {/* Floating Add Items button */}
-      {activeTab === 'to_buy' && (
-        <button style={styles.fab} onClick={() => setShowLibrary(true)}>
-          + Add items
-        </button>
+        </div>
       )}
 
     </div>
@@ -395,27 +499,41 @@ const styles = {
     cursor: 'pointer',
     boxShadow: '0 4px 16px rgba(79,70,229,0.4)',
     zIndex: 50,
+    whiteSpace: 'nowrap',
   },
-  libraryDrawer: {
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.4)',
+    zIndex: 90,
+  },
+  bottomSheet: {
     position: 'fixed',
     bottom: 0,
     left: 0,
     right: 0,
     background: '#fff',
     borderRadius: '20px 20px 0 0',
-    padding: '1.25rem',
-    boxShadow: '0 -4px 24px rgba(0,0,0,0.12)',
+    padding: '0.75rem 1.25rem 2rem',
+    boxShadow: '0 -4px 24px rgba(0,0,0,0.15)',
     zIndex: 100,
-    maxHeight: '70vh',
+    maxHeight: '75vh',
     overflowY: 'auto',
   },
-  libraryHeader: {
+  handle: {
+    width: '40px',
+    height: '4px',
+    background: '#e5e7eb',
+    borderRadius: '999px',
+    margin: '0 auto 1rem',
+  },
+  sheetHeader: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: '1rem',
   },
-  libraryTitle: {
+  sheetTitle: {
     fontSize: '1rem',
     fontWeight: '700',
     color: '#111',
@@ -427,6 +545,7 @@ const styles = {
     fontSize: '1.1rem',
     color: '#aaa',
     cursor: 'pointer',
+    padding: '0.25rem',
   },
   searchInput: {
     width: '100%',
@@ -436,8 +555,10 @@ const styles = {
     borderRadius: '12px',
     boxSizing: 'border-box',
     marginBottom: '0.75rem',
+    outline: 'none',
   },
-  addCustomBtn: {
+  addCustomChip: {
+    display: 'block',
     width: '100%',
     padding: '0.75rem',
     fontSize: '0.95rem',
@@ -448,11 +569,13 @@ const styles = {
     borderRadius: '10px',
     cursor: 'pointer',
     marginBottom: '0.75rem',
+    textAlign: 'left',
   },
   grid: {
     display: 'flex',
     flexWrap: 'wrap',
     gap: '0.5rem',
+    paddingBottom: '1rem',
   },
   chip: {
     padding: '0.5rem 0.85rem',
@@ -468,6 +591,7 @@ const styles = {
     background: '#ede9fe',
     border: '1px solid #a78bfa',
     color: '#4f46e5',
+    cursor: 'default',
   },
 }
 
