@@ -83,6 +83,9 @@ function ListPage() {
   }
 
   async function addItem(libraryItem) {
+    const currentListId = listId || id
+    if (!currentListId) return
+
     const already = listItems.find(
       i => i.item_name.toLowerCase() === libraryItem.item_name.toLowerCase()
         && i.tab_status === 'to_buy'
@@ -90,7 +93,7 @@ function ListPage() {
     if (already) return
 
     const newItem = {
-      list_id: listId,
+      list_id: currentListId,
       household_item_id: libraryItem.id,
       item_name: libraryItem.item_name,
       quantity: libraryItem.last_quantity || '1',
@@ -109,7 +112,7 @@ function ListPage() {
 
   async function addCustomItem() {
     const name = search.trim()
-    if (!name || !listId) return
+    if (!name) return
 
     const { data: libItem } = await supabase
       .from('household_items')
@@ -132,7 +135,8 @@ function ListPage() {
     await supabase.from('list_items').delete().eq('id', itemId)
   }
 
-  const tooBuyItems = listItems.filter(i => i.tab_status === 'to_buy')
+  // Filter items by tab — this is the key fix
+  const toBuyItems = listItems.filter(i => i.tab_status === 'to_buy')
   const pricingItems = listItems.filter(i => i.tab_status === 'pricing')
   const doneItems = listItems.filter(i => i.tab_status === 'done')
 
@@ -164,19 +168,24 @@ function ListPage() {
 
       {/* Tab bar */}
       <div style={styles.tabs}>
-        {[
-          { key: 'to_buy', label: `To Buy (${tooBuyItems.length})` },
-          { key: 'pricing', label: `Pricing (${pricingItems.length})` },
-          { key: 'done', label: `Done (${doneItems.length})` },
-        ].map(tab => (
-          <button
-            key={tab.key}
-            style={{ ...styles.tab, ...(activeTab === tab.key ? styles.tabActive : {}) }}
-            onClick={() => setActiveTab(tab.key)}
-          >
-            {tab.label}
-          </button>
-        ))}
+        <button
+          style={activeTab === 'to_buy' ? { ...styles.tab, ...styles.tabActive } : styles.tab}
+          onClick={() => setActiveTab('to_buy')}
+        >
+          To Buy ({toBuyItems.length})
+        </button>
+        <button
+          style={activeTab === 'pricing' ? { ...styles.tab, ...styles.tabActive } : styles.tab}
+          onClick={() => setActiveTab('pricing')}
+        >
+          Pricing ({pricingItems.length})
+        </button>
+        <button
+          style={activeTab === 'done' ? { ...styles.tab, ...styles.tabActive } : styles.tab}
+          onClick={() => setActiveTab('done')}
+        >
+          Done ({doneItems.length})
+        </button>
       </div>
 
       {/* Tab content */}
@@ -185,12 +194,12 @@ function ListPage() {
         {/* TO BUY TAB */}
         {activeTab === 'to_buy' && (
           <div>
-            {tooBuyItems.length === 0 ? (
+            {toBuyItems.length === 0 ? (
               <p style={styles.emptyNote}>
                 No items yet. Tap "+ Add items" below to add from the library.
               </p>
             ) : (
-              tooBuyItems.map(item => (
+              toBuyItems.map(item => (
                 <div key={item.id} style={styles.itemRow}>
                   <span style={styles.itemName}>{item.item_name}</span>
                   <input
@@ -248,14 +257,13 @@ function ListPage() {
 
           <div style={styles.grid}>
             {filteredLibrary.map(item => {
-              const inList = listItems.find(
+              const inList = toBuyItems.find(
                 i => i.item_name.toLowerCase() === item.item_name.toLowerCase()
-                  && i.tab_status === 'to_buy'
               )
               return (
                 <button
                   key={item.id}
-                  style={{ ...styles.chip, ...(inList ? styles.chipAdded : {}) }}
+                  style={inList ? { ...styles.chip, ...styles.chipAdded } : styles.chip}
                   onClick={() => addItem(item)}
                 >
                   {inList ? '✓ ' : ''}{item.item_name}
@@ -266,12 +274,9 @@ function ListPage() {
         </div>
       )}
 
-      {/* Floating Add Items button — only on To Buy tab */}
+      {/* Floating Add Items button */}
       {activeTab === 'to_buy' && (
-        <button
-          style={styles.fab}
-          onClick={() => setShowLibrary(true)}
-        >
+        <button style={styles.fab} onClick={() => setShowLibrary(true)}>
           + Add items
         </button>
       )}
@@ -315,7 +320,6 @@ const styles = {
     background: '#fff',
     borderBottom: '1px solid #f3f4f6',
     padding: '0 1rem',
-    gap: '0.25rem',
   },
   tab: {
     flex: 1,
