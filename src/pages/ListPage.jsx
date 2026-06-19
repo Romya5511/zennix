@@ -24,12 +24,11 @@ function ListPage() {
   const [showLibrary, setShowLibrary] = useState(false)
   const [adding, setAdding] = useState(false)
 
-  const listIdRef = useRef(listId)
+  const listIdRef = useRef(isNew ? null : id)
   const channelRef = useRef(null)
 
   useEffect(() => { setup() }, [])
 
-  // Subscribe to list_items whenever listId changes
   useEffect(() => {
     listIdRef.current = listId
     if (listId) {
@@ -44,23 +43,15 @@ function ListPage() {
   }, [listId])
 
   function subscribeToListItems(lid) {
-    // Remove existing channel first
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current)
     }
-
     const channel = supabase
       .channel(`list_items_${lid}`)
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'list_items',
-          filter: `list_id=eq.${lid}`,
-        },
+        { event: '*', schema: 'public', table: 'list_items', filter: `list_id=eq.${lid}` },
         async () => {
-          // Re-fetch all items on any change
           const { data } = await supabase
             .from('list_items')
             .select('*')
@@ -70,7 +61,6 @@ function ListPage() {
         }
       )
       .subscribe()
-
     channelRef.current = channel
   }
 
@@ -134,6 +124,7 @@ function ListPage() {
 
     if (existing) {
       setListId(existing.id)
+      listIdRef.current = existing.id
       window.history.replaceState(null, '', `/list/${existing.id}`)
       return existing.id
     }
@@ -146,6 +137,7 @@ function ListPage() {
 
     if (error || !newList) return null
     setListId(newList.id)
+    listIdRef.current = newList.id
     window.history.replaceState(null, '', `/list/${newList.id}`)
     return newList.id
   }
@@ -257,11 +249,13 @@ function ListPage() {
   return (
     <div style={styles.page}>
 
+      {/* Header */}
       <div style={styles.header}>
         <button style={styles.backBtn} onClick={() => navigate('/')}>← Back</button>
         <h1 style={styles.title}>Grocery List</h1>
       </div>
 
+      {/* Tab bar */}
       <div style={styles.tabs}>
         <button
           style={activeTab === 'to_buy' ? { ...styles.tab, ...styles.tabActive } : styles.tab}
@@ -277,11 +271,14 @@ function ListPage() {
         >Done ({doneItems.length})</button>
       </div>
 
+      {/* Tab content */}
       <div style={styles.content}>
         {activeTab === 'to_buy' && (
           <div>
             {toBuyItems.length === 0 ? (
-              <p style={styles.emptyNote}>No items yet. Tap "+ Add items" below.</p>
+              <p style={styles.emptyNote}>
+                No items yet. Tap "+ Add items" below.
+              </p>
             ) : (
               toBuyItems.map(item => (
                 <div key={item.id} style={styles.itemRow}>
@@ -298,90 +295,283 @@ function ListPage() {
             )}
           </div>
         )}
+
         {activeTab === 'pricing' && (
           <p style={styles.emptyNote}>Items you've bought appear here. Coming on Day 6.</p>
         )}
+
         {activeTab === 'done' && (
           <p style={styles.emptyNote}>Completed items appear here. Coming on Day 6.</p>
         )}
       </div>
 
+      {/* Floating Add Items button */}
       {activeTab === 'to_buy' && (
-        <button style={styles.fab} onClick={() => { setShowLibrary(true); setSearch('') }}>
+        <button
+          style={styles.fab}
+          onClick={() => { setShowLibrary(true); setSearch('') }}
+        >
           + Add items
         </button>
       )}
 
-      {showLibrary && <div style={styles.overlay} onClick={() => setShowLibrary(false)} />}
-
+      {/* Bottom sheet — no overlay blocking clicks */}
       {showLibrary && (
-        <div style={styles.bottomSheet}>
-          <div style={styles.handle} />
-          <div style={styles.sheetHeader}>
-            <p style={styles.sheetTitle}>Add items</p>
-            <button style={styles.closeBtn} onClick={() => { setShowLibrary(false); setSearch('') }}>✕</button>
-          </div>
-          <input
-            style={styles.searchInput}
-            placeholder="Search or type a new item..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            autoFocus
+        <>
+          {/* Overlay — pointer events none so it doesn't block sheet */}
+          <div
+            style={styles.overlay}
+            onClick={() => { setShowLibrary(false); setSearch('') }}
           />
-          {showAddCustomChip && (
-            <button style={styles.addCustomChip} onClick={addCustomItem} disabled={adding}>
-              + Add "{search.trim()}"
-            </button>
-          )}
-          <div style={styles.grid}>
-            {filteredLibrary.map(item => {
-              const inList = toBuyItems.find(
-                i => i.item_name.toLowerCase() === item.item_name.toLowerCase()
-              )
-              return (
-                <button
-                  key={item.id}
-                  style={inList ? { ...styles.chip, ...styles.chipAdded } : styles.chip}
-                  onClick={() => !inList && addItemFromLibrary(item)}
-                  disabled={adding}
-                >
-                  {inList ? '✓ ' : ''}{item.item_name}
-                </button>
-              )
-            })}
+
+          {/* Bottom sheet */}
+          <div style={styles.bottomSheet}>
+            <div style={styles.handle} />
+
+            <div style={styles.sheetHeader}>
+              <p style={styles.sheetTitle}>Add items</p>
+              <button
+                style={styles.closeBtn}
+                onClick={() => { setShowLibrary(false); setSearch('') }}
+              >✕</button>
+            </div>
+
+            <input
+              style={styles.searchInput}
+              placeholder="Search or type a new item..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              autoFocus
+            />
+
+            {showAddCustomChip && (
+              <button
+                style={styles.addCustomChip}
+                onClick={addCustomItem}
+                disabled={adding}
+              >
+                + Add "{search.trim()}"
+              </button>
+            )}
+
+            <div style={styles.grid}>
+              {filteredLibrary.map(item => {
+                const inList = toBuyItems.find(
+                  i => i.item_name.toLowerCase() === item.item_name.toLowerCase()
+                )
+                return (
+                  <button
+                    key={item.id}
+                    style={inList
+                      ? { ...styles.chip, ...styles.chipAdded }
+                      : styles.chip
+                    }
+                    onClick={() => {
+                      if (!inList && !adding) addItemFromLibrary(item)
+                    }}
+                  >
+                    {inList ? '✓ ' : ''}{item.item_name}
+                  </button>
+                )
+              })}
+            </div>
           </div>
-        </div>
+        </>
       )}
+
     </div>
   )
 }
 
 const styles = {
-  page: { minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: 'sans-serif', paddingBottom: '100px' },
-  header: { display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem 1rem 0.5rem', background: '#fff', borderBottom: '1px solid #f3f4f6' },
-  backBtn: { background: 'none', border: 'none', fontSize: '0.95rem', color: '#4f46e5', cursor: 'pointer', padding: 0, fontWeight: '600' },
+  page: {
+    minHeight: '100vh',
+    backgroundColor: '#f9fafb',
+    fontFamily: 'sans-serif',
+    paddingBottom: '100px',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '1rem',
+    padding: '1rem 1rem 0.5rem',
+    background: '#fff',
+    borderBottom: '1px solid #f3f4f6',
+  },
+  backBtn: {
+    background: 'none',
+    border: 'none',
+    fontSize: '0.95rem',
+    color: '#4f46e5',
+    cursor: 'pointer',
+    padding: 0,
+    fontWeight: '600',
+  },
   title: { fontSize: '1.1rem', fontWeight: '700', margin: 0, color: '#111' },
-  tabs: { display: 'flex', background: '#fff', borderBottom: '1px solid #f3f4f6', padding: '0 1rem' },
-  tab: { flex: 1, padding: '0.75rem 0.25rem', fontSize: '0.8rem', fontWeight: '600', border: 'none', borderBottom: '3px solid transparent', background: 'none', color: '#aaa', cursor: 'pointer' },
-  tabActive: { color: '#4f46e5', borderBottom: '3px solid #4f46e5' },
-  content: { padding: '1rem', maxWidth: '480px', margin: '0 auto' },
-  emptyNote: { fontSize: '0.9rem', color: '#aaa', textAlign: 'center', padding: '3rem 1rem', margin: 0 },
-  itemRow: { display: 'flex', alignItems: 'center', gap: '0.75rem', background: '#fff', borderRadius: '12px', padding: '0.75rem 1rem', marginBottom: '0.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
+  tabs: {
+    display: 'flex',
+    background: '#fff',
+    borderBottom: '1px solid #f3f4f6',
+    padding: '0 1rem',
+  },
+  tab: {
+    flex: 1,
+    padding: '0.75rem 0.25rem',
+    fontSize: '0.8rem',
+    fontWeight: '600',
+    border: 'none',
+    borderBottom: '3px solid transparent',
+    background: 'none',
+    color: '#aaa',
+    cursor: 'pointer',
+  },
+  tabActive: {
+    color: '#4f46e5',
+    borderBottom: '3px solid #4f46e5',
+  },
+  content: {
+    padding: '1rem',
+    maxWidth: '480px',
+    margin: '0 auto',
+  },
+  emptyNote: {
+    fontSize: '0.9rem',
+    color: '#aaa',
+    textAlign: 'center',
+    padding: '3rem 1rem',
+    margin: 0,
+  },
+  itemRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    background: '#fff',
+    borderRadius: '12px',
+    padding: '0.75rem 1rem',
+    marginBottom: '0.5rem',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+  },
   itemName: { flex: 1, fontSize: '0.95rem', fontWeight: '500', color: '#111' },
-  qtyInput: { width: '60px', padding: '0.35rem 0.5rem', fontSize: '0.85rem', border: '1px solid #e5e7eb', borderRadius: '8px', textAlign: 'center' },
-  removeBtn: { background: 'none', border: 'none', color: '#ccc', fontSize: '1rem', cursor: 'pointer', padding: '0.25rem' },
-  fab: { position: 'fixed', bottom: '2rem', left: '50%', transform: 'translateX(-50%)', padding: '0.85rem 2rem', fontSize: '1rem', fontWeight: '700', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '999px', cursor: 'pointer', boxShadow: '0 4px 16px rgba(79,70,229,0.4)', zIndex: 50, whiteSpace: 'nowrap' },
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 90 },
-  bottomSheet: { position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', borderRadius: '20px 20px 0 0', padding: '0.75rem 1.25rem 2rem', boxShadow: '0 -4px 24px rgba(0,0,0,0.15)', zIndex: 100, maxHeight: '75vh', overflowY: 'auto' },
-  handle: { width: '40px', height: '4px', background: '#e5e7eb', borderRadius: '999px', margin: '0 auto 1rem' },
-  sheetHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' },
+  qtyInput: {
+    width: '60px',
+    padding: '0.35rem 0.5rem',
+    fontSize: '0.85rem',
+    border: '1px solid #e5e7eb',
+    borderRadius: '8px',
+    textAlign: 'center',
+  },
+  removeBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#ccc',
+    fontSize: '1rem',
+    cursor: 'pointer',
+    padding: '0.25rem',
+  },
+  fab: {
+    position: 'fixed',
+    bottom: '2rem',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    padding: '0.85rem 2rem',
+    fontSize: '1rem',
+    fontWeight: '700',
+    backgroundColor: '#4f46e5',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '999px',
+    cursor: 'pointer',
+    boxShadow: '0 4px 16px rgba(79,70,229,0.4)',
+    zIndex: 50,
+    whiteSpace: 'nowrap',
+  },
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.4)',
+    zIndex: 90,
+  },
+  bottomSheet: {
+    position: 'fixed',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    background: '#fff',
+    borderRadius: '20px 20px 0 0',
+    padding: '0.75rem 1.25rem 2rem',
+    boxShadow: '0 -4px 24px rgba(0,0,0,0.15)',
+    zIndex: 100,
+    maxHeight: '75vh',
+    overflowY: 'auto',
+  },
+  handle: {
+    width: '40px',
+    height: '4px',
+    background: '#e5e7eb',
+    borderRadius: '999px',
+    margin: '0 auto 1rem',
+  },
+  sheetHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '1rem',
+  },
   sheetTitle: { fontSize: '1rem', fontWeight: '700', color: '#111', margin: 0 },
-  closeBtn: { background: 'none', border: 'none', fontSize: '1.1rem', color: '#aaa', cursor: 'pointer', padding: '0.25rem' },
-  searchInput: { width: '100%', padding: '0.75rem 1rem', fontSize: '1rem', border: '1px solid #e5e7eb', borderRadius: '12px', boxSizing: 'border-box', marginBottom: '0.75rem', outline: 'none' },
-  addCustomChip: { display: 'block', width: '100%', padding: '0.75rem', fontSize: '0.95rem', fontWeight: '600', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '10px', cursor: 'pointer', marginBottom: '0.75rem', textAlign: 'left' },
-  grid: { display: 'flex', flexWrap: 'wrap', gap: '0.5rem', paddingBottom: '1rem' },
-  chip: { padding: '0.5rem 0.85rem', fontSize: '0.875rem', fontWeight: '500', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '999px', cursor: 'pointer', color: '#333' },
-  chipAdded: { background: '#ede9fe', border: '1px solid #a78bfa', color: '#4f46e5', cursor: 'default' },
+  closeBtn: {
+    background: 'none',
+    border: 'none',
+    fontSize: '1.1rem',
+    color: '#aaa',
+    cursor: 'pointer',
+    padding: '0.25rem',
+  },
+  searchInput: {
+    width: '100%',
+    padding: '0.75rem 1rem',
+    fontSize: '1rem',
+    border: '1px solid #e5e7eb',
+    borderRadius: '12px',
+    boxSizing: 'border-box',
+    marginBottom: '0.75rem',
+    outline: 'none',
+  },
+  addCustomChip: {
+    display: 'block',
+    width: '100%',
+    padding: '0.75rem',
+    fontSize: '0.95rem',
+    fontWeight: '600',
+    background: '#f0fdf4',
+    color: '#16a34a',
+    border: '1px solid #bbf7d0',
+    borderRadius: '10px',
+    cursor: 'pointer',
+    marginBottom: '0.75rem',
+    textAlign: 'left',
+  },
+  grid: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.5rem',
+    paddingBottom: '1rem',
+  },
+  chip: {
+    padding: '0.5rem 0.85rem',
+    fontSize: '0.875rem',
+    fontWeight: '500',
+    background: '#f9fafb',
+    border: '1px solid #e5e7eb',
+    borderRadius: '999px',
+    cursor: 'pointer',
+    color: '#333',
+  },
+  chipAdded: {
+    background: '#ede9fe',
+    border: '1px solid #a78bfa',
+    color: '#4f46e5',
+    cursor: 'default',
+  },
 }
 
 export default ListPage
