@@ -8,6 +8,16 @@ const SEED_ITEMS = [
   'Sabun', 'Shampoo', 'Chai Patti', 'Biscuit', 'Bread'
 ]
 
+// Returns "2 min ago", "1 hr ago", "just now" etc.
+function timeAgo(isoString) {
+  if (!isoString) return ''
+  const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000)
+  if (diff < 60) return 'just now'
+  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`
+  return `${Math.floor(diff / 86400)} day ago`
+}
+
 function ListPage() {
   const navigate = useNavigate()
   const { id } = useParams()
@@ -17,6 +27,7 @@ function ListPage() {
   const [listId, setListId] = useState(isNew ? null : id)
   const [libraryItems, setLibraryItems] = useState([])
   const [listItems, setListItems] = useState([])
+  const [profiles, setProfiles] = useState({}) // { [userId]: full_name }
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState('to_buy')
   const [showLibrary, setShowLibrary] = useState(false)
@@ -75,6 +86,26 @@ function ListPage() {
 
     if (!membership) { navigate('/'); return }
     householdIdRef.current = membership.household_id
+
+    // Load all profiles for this household so we can show display names
+    const { data: members } = await supabase
+      .from('household_members')
+      .select('user_id')
+      .eq('household_id', membership.household_id)
+
+    if (members && members.length > 0) {
+      const userIds = members.map(m => m.user_id)
+      const { data: profileRows } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds)
+
+      if (profileRows) {
+        const profileMap = {}
+        profileRows.forEach(p => { profileMap[p.id] = p.full_name })
+        setProfiles(profileMap)
+      }
+    }
 
     if (!isNew) {
       const { data: items } = await supabase
@@ -250,10 +281,8 @@ function ListPage() {
     await supabase.from('list_items').delete().eq('id', itemId)
   }
 
-  // Tick: optimistically update local state, then write to Supabase
   async function toggleTick(item) {
     const newTicked = !item.is_ticked
-    // Optimistic update so the tapping member sees instant response
     setListItems(prev =>
       prev.map(i => i.id === item.id ? { ...i, is_ticked: newTicked } : i)
     )
@@ -261,10 +290,8 @@ function ListPage() {
       .from('list_items')
       .update({ is_ticked: newTicked })
       .eq('id', item.id)
-    // Realtime subscription will fire and refresh list for the other member
   }
 
-  // Save changes: move all ticked items to Pricing tab
   async function saveChanges() {
     if (savingChanges) return
     setSavingChanges(true)
@@ -277,7 +304,6 @@ function ListPage() {
 
     const now = new Date().toISOString()
 
-    // Optimistic update locally
     setListItems(prev =>
       prev.map(i =>
         tickedIds.includes(i.id)
@@ -286,9 +312,6 @@ function ListPage() {
       )
     )
 
-    // Batch write to Supabase — one row at a time since Supabase JS v2
-    // doesn't support batch update with different values per row.
-    // All ticked items get the same fields so a single .in() works here.
     await supabase
       .from('list_items')
       .update({
@@ -300,6 +323,52 @@ function ListPage() {
       .in('id', tickedIds)
 
     setSavingChanges(false)
+  }
+
+  // Called when user types a price and presses Enter or taps away
+  async function enterPrice(item, priceValue) {
+    const price = parseFloat(priceValue)
+    if (!priceValue || isNaN(price) || price <= 0) return
+
+    const uid = userIdRef.current
+    const hid = householdIdRef.current
+    const currentListId = listIdRef.current
+    const now = new Date().toISOString()
+
+    // Optimistic update — remove from pricing tab immediately
+    setListItems(prev =>
+      prev.map(i =>
+        i.id === item.id
+          ? { ...i, tab_status: 'done', price_entered: price, price_entered_by: uid, price_entered_at: now }
+          : i
+      )
+    )
+
+    // Update list_item in Supabase
+    await supabase
+      .from('list_items')
+      .update({
+        price_entered: price,
+        price_entered_by: uid,
+        price_entered_at: now,
+        tab_status: 'done',
+      })
+      .eq('id', item.id)
+
+    // Insert into household_bucket
+    // bought_by = ticked_by (the person who physically bought it)
+    await supabase
+      .from('household_bucket')
+      .insert({
+        household_id: hid,
+        source_type: 'grocery_list',
+        source_id: currentListId,
+        item_name: item.item_name,
+        quantity: item.quantity,
+        amount: price,
+        bought_by: item.ticked_by,
+        bought_at: now,
+      })
   }
 
   const toBuyItems = listItems.filter(i => i.tab_status === 'to_buy')
@@ -351,12 +420,12 @@ function ListPage() {
 
       {/* Tab content */}
       <div style={styles.content}>
+
+        {/* ── TO BUY TAB ── */}
         {activeTab === 'to_buy' && (
           <div>
             {toBuyItems.length === 0 ? (
-              <p style={styles.emptyNote}>
-                No items yet. Tap "+ Add items" below.
-              </p>
+              <p style={styles.emptyNote}>No items yet. Tap "+ Add items" below.</p>
             ) : (
               toBuyItems.map(item => (
                 <div
@@ -380,7 +449,6 @@ function ListPage() {
                     onChange={e => updateQty(item.id, e.target.value)}
                     placeholder="Qty"
                   />
-                  {/* Circle tick button */}
                   <button
                     style={item.is_ticked
                       ? { ...styles.tickBtn, ...styles.tickBtnActive }
@@ -397,20 +465,68 @@ function ListPage() {
           </div>
         )}
 
+        {/* ── PRICING TAB ── */}
         {activeTab === 'pricing' && (
-          <p style={styles.emptyNote}>
-            Items you've bought appear here. Coming on Day 6.
-          </p>
+          <div>
+            {pricingItems.length === 0 ? (
+              <p style={styles.emptyNote}>
+                No items here yet. Tick items in To Buy and tap Save changes.
+              </p>
+            ) : (
+              pricingItems.map(item => (
+                <div key={item.id} style={styles.pricingRow}>
+                  {/* Left: item name + meta */}
+                  <div style={styles.pricingLeft}>
+                    <span style={styles.itemName}>{item.item_name}</span>
+                    <span style={styles.pricingMeta}>
+                      {profiles[item.ticked_by]
+                        ? `Bought by ${profiles[item.ticked_by]}`
+                        : 'Bought'
+                      }
+                      {item.ticked_at ? ` · ${timeAgo(item.ticked_at)}` : ''}
+                    </span>
+                  </div>
+
+                  {/* Middle: editable qty */}
+                  <input
+                    style={styles.qtyInput}
+                    value={item.quantity || ''}
+                    onChange={e => updateQty(item.id, e.target.value)}
+                    placeholder="Qty"
+                  />
+
+                  {/* Right: price input */}
+                  <div style={styles.priceWrapper}>
+                    <span style={styles.rupeeSymbol}>₹</span>
+                    <input
+                      style={styles.priceInput}
+                      type="number"
+                      placeholder="Price"
+                      min="0"
+                      onBlur={e => enterPrice(item, e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.target.blur()
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         )}
 
+        {/* ── DONE TAB ── */}
         {activeTab === 'done' && (
           <p style={styles.emptyNote}>
-            Completed items appear here. Coming on Day 6.
+            Completed items appear here. Coming on Day 7.
           </p>
         )}
+
       </div>
 
-      {/* Save changes bar — appears only when at least one item is ticked */}
+      {/* Save changes bar */}
       {activeTab === 'to_buy' && anyTicked && (
         <div style={styles.saveBar}>
           <button
@@ -423,7 +539,7 @@ function ListPage() {
         </div>
       )}
 
-      {/* Floating Add Items button — shifts up when save bar is visible */}
+      {/* Floating Add Items button */}
       {activeTab === 'to_buy' && (
         <button
           style={anyTicked ? { ...styles.fab, bottom: '6rem' } : styles.fab}
@@ -556,7 +672,7 @@ const styles = {
     margin: 0,
   },
 
-  // Item row — base
+  // To Buy row
   itemRow: {
     display: 'flex',
     alignItems: 'center',
@@ -568,12 +684,9 @@ const styles = {
     boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
     transition: 'background 0.15s ease',
   },
-  // Item row — ticked state
   itemRowTicked: {
     background: '#f0fdf4',
   },
-
-  // Item name — base
   itemName: {
     flex: 1,
     fontSize: '0.95rem',
@@ -581,12 +694,10 @@ const styles = {
     color: '#111',
     transition: 'color 0.15s ease',
   },
-  // Item name — ticked state
   itemNameTicked: {
     textDecoration: 'line-through',
     color: '#9ca3af',
   },
-
   qtyInput: {
     width: '60px',
     padding: '0.35rem 0.5rem',
@@ -595,8 +706,6 @@ const styles = {
     borderRadius: '8px',
     textAlign: 'center',
   },
-
-  // Circle tick button — unticked
   tickBtn: {
     width: '32px',
     height: '32px',
@@ -614,14 +723,58 @@ const styles = {
     transition: 'all 0.15s ease',
     padding: 0,
   },
-  // Circle tick button — ticked
   tickBtnActive: {
     background: '#16a34a',
     borderColor: '#16a34a',
     color: '#fff',
   },
 
-  // Save changes bar — fixed at bottom
+  // Pricing row
+  pricingRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    background: '#fff',
+    borderRadius: '12px',
+    padding: '0.75rem 1rem',
+    marginBottom: '0.5rem',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+  },
+  pricingLeft: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.2rem',
+  },
+  pricingMeta: {
+    fontSize: '0.75rem',
+    color: '#9ca3af',
+  },
+  priceWrapper: {
+    display: 'flex',
+    alignItems: 'center',
+    border: '1px solid #e5e7eb',
+    borderRadius: '8px',
+    overflow: 'hidden',
+    width: '100px',
+  },
+  rupeeSymbol: {
+    padding: '0.35rem 0.4rem',
+    fontSize: '0.85rem',
+    color: '#6b7280',
+    background: '#f9fafb',
+    borderRight: '1px solid #e5e7eb',
+  },
+  priceInput: {
+    width: '100%',
+    padding: '0.35rem 0.4rem',
+    fontSize: '0.85rem',
+    border: 'none',
+    outline: 'none',
+    textAlign: 'right',
+  },
+
+  // Save bar
   saveBar: {
     position: 'fixed',
     bottom: 0,
