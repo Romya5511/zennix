@@ -9,6 +9,12 @@ const SEED_ITEMS = [
 ]
 
 // Returns "2 min ago", "1 hr ago", "just now" etc.
+// Returns first name only e.g. "Romya ranjan Samal" → "Romya"
+function firstName(fullName) {
+  if (!fullName) return ''
+  return fullName.split(' ')[0]
+}
+
 function timeAgo(isoString) {
   if (!isoString) return ''
   const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000)
@@ -33,6 +39,8 @@ function ListPage() {
   const [showLibrary, setShowLibrary] = useState(false)
   const [adding, setAdding] = useState(false)
   const [savingChanges, setSavingChanges] = useState(false)
+  const [doneEdits, setDoneEdits] = useState({})   // { [itemId]: { qty, price } }
+  const [savingDoneEdits, setSavingDoneEdits] = useState(false)
 
   const listIdRef = useRef(isNew ? null : id)
   const householdIdRef = useRef(null)
@@ -355,20 +363,59 @@ function ListPage() {
       })
       .eq('id', item.id)
 
-    // Insert into household_bucket
-    // bought_by = ticked_by (the person who physically bought it)
+    // Insert into household_bucket — store list_item_id for exact matching on future edits
     await supabase
       .from('household_bucket')
       .insert({
         household_id: hid,
         source_type: 'grocery_list',
         source_id: currentListId,
+        list_item_id: item.id,
         item_name: item.item_name,
         quantity: item.quantity,
         amount: price,
         bought_by: item.ticked_by,
         bought_at: now,
       })
+  }
+
+  // Save edits made on Done tab rows
+  async function saveDoneEdits() {
+    if (savingDoneEdits) return
+    setSavingDoneEdits(true)
+
+    const editedIds = Object.keys(doneEdits)
+    if (editedIds.length === 0) { setSavingDoneEdits(false); return }
+
+    for (const itemId of editedIds) {
+      const { qty, price } = doneEdits[itemId]
+      const parsedPrice = parseFloat(price)
+      if (isNaN(parsedPrice) || parsedPrice <= 0) continue
+
+      // Update list_items
+      await supabase
+        .from('list_items')
+        .update({ quantity: qty, price_entered: parsedPrice })
+        .eq('id', itemId)
+
+      // Update household_bucket — match by list_item_id
+      await supabase
+        .from('household_bucket')
+        .update({ quantity: qty, amount: parsedPrice })
+        .eq('list_item_id', itemId)
+
+      // Update local state
+      setListItems(prev =>
+        prev.map(i =>
+          i.id === itemId
+            ? { ...i, quantity: qty, price_entered: parsedPrice }
+            : i
+        )
+      )
+    }
+
+    setDoneEdits({})
+    setSavingDoneEdits(false)
   }
 
   const toBuyItems = listItems.filter(i => i.tab_status === 'to_buy')
@@ -480,7 +527,7 @@ function ListPage() {
                     <span style={styles.itemName}>{item.item_name}</span>
                     <span style={styles.pricingMeta}>
                       {profiles[item.ticked_by]
-                        ? `Bought by ${profiles[item.ticked_by]}`
+                        ? `Bought by ${firstName(profiles[item.ticked_by])}`
                         : 'Bought'
                       }
                       {item.ticked_at ? ` · ${timeAgo(item.ticked_at)}` : ''}
@@ -519,9 +566,108 @@ function ListPage() {
 
         {/* ── DONE TAB ── */}
         {activeTab === 'done' && (
-          <p style={styles.emptyNote}>
-            Completed items appear here. Coming on Day 7.
-          </p>
+          <div>
+            {doneItems.length === 0 ? (
+              <p style={styles.emptyNote}>
+                No completed items yet. Enter prices in the Pricing tab.
+              </p>
+            ) : (
+              <>
+                {/* Running total — uses edited price if in edit state */}
+                <div style={styles.totalBar}>
+                  <span style={styles.totalLabel}>Total so far</span>
+                  <span style={styles.totalAmount}>
+                    ₹{doneItems.reduce((sum, i) => {
+                      const edited = doneEdits[i.id]
+                      const price = edited ? parseFloat(edited.price) || 0 : parseFloat(i.price_entered) || 0
+                      return sum + price
+                    }, 0).toFixed(2)}
+                  </span>
+                </div>
+
+                {/* Done item rows — tap row to edit */}
+                {doneItems.map(item => {
+                  const isEditing = !!doneEdits[item.id]
+                  const editState = doneEdits[item.id] || {
+                    qty: item.quantity || '',
+                    price: parseFloat(item.price_entered || 0).toFixed(2),
+                  }
+                  return (
+                    <div
+                      key={item.id}
+                      style={isEditing
+                        ? { ...styles.doneRow, ...styles.doneRowEditing }
+                        : styles.doneRow
+                      }
+                      onClick={() => {
+                        if (!isEditing) {
+                          setDoneEdits(prev => ({
+                            ...prev,
+                            [item.id]: {
+                              qty: item.quantity || '',
+                              price: parseFloat(item.price_entered || 0).toFixed(2),
+                            }
+                          }))
+                        }
+                      }}
+                    >
+                      <div style={styles.doneLeft}>
+                        <span style={styles.doneItemName}>{item.item_name}</span>
+                        {isEditing ? (
+                          <span style={{ ...styles.doneMeta, color: '#4f46e5' }}>Tap Save changes to confirm</span>
+                        ) : (
+                          <span style={styles.doneMeta}>
+                            {item.quantity ? `${item.quantity} · ` : ''}
+                            {profiles[item.ticked_by]
+                              ? `Bought by ${firstName(profiles[item.ticked_by])}`
+                              : 'Bought'
+                            }
+                            {item.price_entered_at ? ` · ${timeAgo(item.price_entered_at)}` : ''}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Qty — editable when in edit state */}
+                      {isEditing ? (
+                        <input
+                          style={styles.qtyInput}
+                          value={editState.qty}
+                          onClick={e => e.stopPropagation()}
+                          onChange={e => setDoneEdits(prev => ({
+                            ...prev,
+                            [item.id]: { ...prev[item.id], qty: e.target.value }
+                          }))}
+                          placeholder="Qty"
+                        />
+                      ) : null}
+
+                      {/* Price — editable when in edit state, read-only otherwise */}
+                      {isEditing ? (
+                        <div style={styles.priceWrapper} onClick={e => e.stopPropagation()}>
+                          <span style={styles.rupeeSymbol}>₹</span>
+                          <input
+                            style={styles.priceInput}
+                            type="number"
+                            value={editState.price}
+                            onChange={e => setDoneEdits(prev => ({
+                              ...prev,
+                              [item.id]: { ...prev[item.id], price: e.target.value }
+                            }))}
+                            placeholder="Price"
+                            min="0"
+                          />
+                        </div>
+                      ) : (
+                        <span style={styles.donePrice}>
+                          ₹{parseFloat(item.price_entered || 0).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </>
+            )}
+          </div>
         )}
 
       </div>
@@ -535,6 +681,19 @@ function ListPage() {
             disabled={savingChanges}
           >
             {savingChanges ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      )}
+
+      {/* Save changes bar — Done tab edits */}
+      {activeTab === 'done' && Object.keys(doneEdits).length > 0 && (
+        <div style={styles.saveBar}>
+          <button
+            style={savingDoneEdits ? { ...styles.saveBtn, opacity: 0.6 } : styles.saveBtn}
+            onClick={saveDoneEdits}
+            disabled={savingDoneEdits}
+          >
+            {savingDoneEdits ? 'Saving…' : 'Save changes'}
           </button>
         </div>
       )}
@@ -772,6 +931,64 @@ const styles = {
     border: 'none',
     outline: 'none',
     textAlign: 'right',
+  },
+
+  // Done tab
+  totalBar: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    background: '#fff',
+    borderRadius: '12px',
+    padding: '0.85rem 1rem',
+    marginBottom: '0.75rem',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+  },
+  totalLabel: {
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  totalAmount: {
+    fontSize: '1.1rem',
+    fontWeight: '700',
+    color: '#4f46e5',
+  },
+  doneRowEditing: {
+    background: '#eff6ff',
+    borderColor: '#bfdbfe',
+    border: '1px solid #bfdbfe',
+  },
+  doneRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    background: '#fff',
+    borderRadius: '12px',
+    padding: '0.75rem 1rem',
+    marginBottom: '0.5rem',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+  },
+  doneLeft: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.2rem',
+  },
+  doneItemName: {
+    fontSize: '0.95rem',
+    fontWeight: '500',
+    color: '#111',
+  },
+  doneMeta: {
+    fontSize: '0.75rem',
+    color: '#9ca3af',
+  },
+  donePrice: {
+    fontSize: '1rem',
+    fontWeight: '700',
+    color: '#16a34a',
+    flexShrink: 0,
   },
 
   // Save bar
