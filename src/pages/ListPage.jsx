@@ -21,6 +21,7 @@ function ListPage() {
   const [activeTab, setActiveTab] = useState('to_buy')
   const [showLibrary, setShowLibrary] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [savingChanges, setSavingChanges] = useState(false)
 
   const listIdRef = useRef(isNew ? null : id)
   const householdIdRef = useRef(null)
@@ -171,15 +172,14 @@ function ListPage() {
         quantity: libraryItem.last_quantity || '1',
         tab_status: 'to_buy',
         display_order: listItems.length,
+        is_ticked: false,
       })
       .select()
       .single()
 
     if (!error && inserted) {
-      // Update local state immediately
       setListItems(prev => [...prev, inserted])
 
-      // Increment times_added
       await supabase
         .from('household_items')
         .update({ times_added: (libraryItem.times_added || 0) + 1 })
@@ -193,7 +193,6 @@ function ListPage() {
       )
     }
 
-    // Keep sheet open so user can keep adding items
     setAdding(false)
   }
 
@@ -229,6 +228,7 @@ function ListPage() {
           quantity: '1',
           tab_status: 'to_buy',
           display_order: listItems.length,
+          is_ticked: false,
         })
         .select()
         .single()
@@ -236,7 +236,6 @@ function ListPage() {
       if (inserted) setListItems(prev => [...prev, inserted])
     }
 
-    // Clear search but keep sheet open
     setAdding(false)
     setSearch('')
   }
@@ -251,9 +250,62 @@ function ListPage() {
     await supabase.from('list_items').delete().eq('id', itemId)
   }
 
+  // Tick: optimistically update local state, then write to Supabase
+  async function toggleTick(item) {
+    const newTicked = !item.is_ticked
+    // Optimistic update so the tapping member sees instant response
+    setListItems(prev =>
+      prev.map(i => i.id === item.id ? { ...i, is_ticked: newTicked } : i)
+    )
+    await supabase
+      .from('list_items')
+      .update({ is_ticked: newTicked })
+      .eq('id', item.id)
+    // Realtime subscription will fire and refresh list for the other member
+  }
+
+  // Save changes: move all ticked items to Pricing tab
+  async function saveChanges() {
+    if (savingChanges) return
+    setSavingChanges(true)
+
+    const uid = userIdRef.current
+    const tickedItems = toBuyItems.filter(i => i.is_ticked)
+    const tickedIds = tickedItems.map(i => i.id)
+
+    if (tickedIds.length === 0) { setSavingChanges(false); return }
+
+    const now = new Date().toISOString()
+
+    // Optimistic update locally
+    setListItems(prev =>
+      prev.map(i =>
+        tickedIds.includes(i.id)
+          ? { ...i, tab_status: 'pricing', ticked_by: uid, ticked_at: now, is_ticked: false }
+          : i
+      )
+    )
+
+    // Batch write to Supabase — one row at a time since Supabase JS v2
+    // doesn't support batch update with different values per row.
+    // All ticked items get the same fields so a single .in() works here.
+    await supabase
+      .from('list_items')
+      .update({
+        tab_status: 'pricing',
+        ticked_by: uid,
+        ticked_at: now,
+        is_ticked: false,
+      })
+      .in('id', tickedIds)
+
+    setSavingChanges(false)
+  }
+
   const toBuyItems = listItems.filter(i => i.tab_status === 'to_buy')
   const pricingItems = listItems.filter(i => i.tab_status === 'pricing')
   const doneItems = listItems.filter(i => i.tab_status === 'done')
+  const anyTicked = toBuyItems.some(i => i.is_ticked)
 
   const filteredLibrary = libraryItems.filter(item =>
     item.item_name.toLowerCase().includes(search.toLowerCase())
@@ -307,18 +359,38 @@ function ListPage() {
               </p>
             ) : (
               toBuyItems.map(item => (
-                <div key={item.id} style={styles.itemRow}>
-                  <span style={styles.itemName}>{item.item_name}</span>
+                <div
+                  key={item.id}
+                  style={item.is_ticked
+                    ? { ...styles.itemRow, ...styles.itemRowTicked }
+                    : styles.itemRow
+                  }
+                >
+                  <span
+                    style={item.is_ticked
+                      ? { ...styles.itemName, ...styles.itemNameTicked }
+                      : styles.itemName
+                    }
+                  >
+                    {item.item_name}
+                  </span>
                   <input
                     style={styles.qtyInput}
                     value={item.quantity || ''}
                     onChange={e => updateQty(item.id, e.target.value)}
                     placeholder="Qty"
                   />
+                  {/* Circle tick button */}
                   <button
-                    style={styles.removeBtn}
-                    onClick={() => removeItem(item.id)}
-                  >✕</button>
+                    style={item.is_ticked
+                      ? { ...styles.tickBtn, ...styles.tickBtnActive }
+                      : styles.tickBtn
+                    }
+                    onClick={() => toggleTick(item)}
+                    aria-label={item.is_ticked ? 'Untick item' : 'Tick item'}
+                  >
+                    {item.is_ticked ? '✓' : ''}
+                  </button>
                 </div>
               ))
             )}
@@ -338,10 +410,23 @@ function ListPage() {
         )}
       </div>
 
-      {/* Floating Add Items button */}
+      {/* Save changes bar — appears only when at least one item is ticked */}
+      {activeTab === 'to_buy' && anyTicked && (
+        <div style={styles.saveBar}>
+          <button
+            style={savingChanges ? { ...styles.saveBtn, opacity: 0.6 } : styles.saveBtn}
+            onClick={saveChanges}
+            disabled={savingChanges}
+          >
+            {savingChanges ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      )}
+
+      {/* Floating Add Items button — shifts up when save bar is visible */}
       {activeTab === 'to_buy' && (
         <button
-          style={styles.fab}
+          style={anyTicked ? { ...styles.fab, bottom: '6rem' } : styles.fab}
           onClick={() => { setShowLibrary(true); setSearch('') }}
         >
           + Add items
@@ -470,6 +555,8 @@ const styles = {
     padding: '3rem 1rem',
     margin: 0,
   },
+
+  // Item row — base
   itemRow: {
     display: 'flex',
     alignItems: 'center',
@@ -479,8 +566,27 @@ const styles = {
     padding: '0.75rem 1rem',
     marginBottom: '0.5rem',
     boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+    transition: 'background 0.15s ease',
   },
-  itemName: { flex: 1, fontSize: '0.95rem', fontWeight: '500', color: '#111' },
+  // Item row — ticked state
+  itemRowTicked: {
+    background: '#f0fdf4',
+  },
+
+  // Item name — base
+  itemName: {
+    flex: 1,
+    fontSize: '0.95rem',
+    fontWeight: '500',
+    color: '#111',
+    transition: 'color 0.15s ease',
+  },
+  // Item name — ticked state
+  itemNameTicked: {
+    textDecoration: 'line-through',
+    color: '#9ca3af',
+  },
+
   qtyInput: {
     width: '60px',
     padding: '0.35rem 0.5rem',
@@ -489,14 +595,56 @@ const styles = {
     borderRadius: '8px',
     textAlign: 'center',
   },
-  removeBtn: {
-    background: 'none',
-    border: 'none',
-    color: '#ccc',
+
+  // Circle tick button — unticked
+  tickBtn: {
+    width: '32px',
+    height: '32px',
+    borderRadius: '50%',
+    border: '2px solid #d1d5db',
+    background: '#fff',
+    color: '#fff',
     fontSize: '1rem',
+    fontWeight: '700',
     cursor: 'pointer',
-    padding: '0.25rem',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    transition: 'all 0.15s ease',
+    padding: 0,
   },
+  // Circle tick button — ticked
+  tickBtnActive: {
+    background: '#16a34a',
+    borderColor: '#16a34a',
+    color: '#fff',
+  },
+
+  // Save changes bar — fixed at bottom
+  saveBar: {
+    position: 'fixed',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    background: '#fff',
+    borderTop: '1px solid #f3f4f6',
+    padding: '0.75rem 1.25rem',
+    boxShadow: '0 -4px 16px rgba(0,0,0,0.06)',
+    zIndex: 40,
+  },
+  saveBtn: {
+    width: '100%',
+    padding: '0.85rem',
+    fontSize: '1rem',
+    fontWeight: '700',
+    background: '#4f46e5',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '12px',
+    cursor: 'pointer',
+  },
+
   fab: {
     position: 'fixed',
     bottom: '2rem',
@@ -513,6 +661,7 @@ const styles = {
     boxShadow: '0 4px 16px rgba(79,70,229,0.4)',
     zIndex: 50,
     whiteSpace: 'nowrap',
+    transition: 'bottom 0.2s ease',
   },
   overlay: {
     position: 'fixed',
