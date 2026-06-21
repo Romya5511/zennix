@@ -24,6 +24,86 @@ function timeAgo(isoString) {
   return `${Math.floor(diff / 86400)} day ago`
 }
 
+// Swipe-to-delete wrapper — works with mouse and touch via pointer events
+function SwipeToDelete({ children, onDelete, isOpen, onOpen, onClose }) {
+  const startXRef = useRef(null)
+  const THRESHOLD = 60 // px to trigger open
+
+  function onPointerDown(e) {
+    startXRef.current = e.clientX
+  }
+
+  function onPointerUp(e) {
+    if (startXRef.current === null) return
+    const diff = startXRef.current - e.clientX
+    if (diff > THRESHOLD) {
+      onOpen()
+    } else if (diff < -20) {
+      onClose()
+    }
+    startXRef.current = null
+  }
+
+  return (
+    <div style={swipeStyles.wrapper}>
+      {/* Delete button revealed behind */}
+      <div style={swipeStyles.deleteSlot}>
+        <button
+          style={swipeStyles.deleteBtn}
+          onClick={() => { onClose(); onDelete() }}
+        >
+          Delete
+        </button>
+      </div>
+      {/* Sliding row */}
+      <div
+        style={{
+          ...swipeStyles.slider,
+          transform: isOpen ? 'translateX(-80px)' : 'translateX(0)',
+        }}
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
+const swipeStyles = {
+  wrapper: {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: '12px',
+    marginBottom: '0.5rem',
+  },
+  deleteSlot: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: '80px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#ef4444',
+    borderRadius: '12px',
+  },
+  deleteBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#fff',
+    fontSize: '0.875rem',
+    fontWeight: '700',
+    cursor: 'pointer',
+    padding: '0.5rem',
+  },
+  slider: {
+    transition: 'transform 0.2s ease',
+    willChange: 'transform',
+  },
+}
+
 function ListPage() {
   const navigate = useNavigate()
   const { id } = useParams()
@@ -41,6 +121,8 @@ function ListPage() {
   const [savingChanges, setSavingChanges] = useState(false)
   const [doneEdits, setDoneEdits] = useState({})   // { [itemId]: { qty, price } }
   const [savingDoneEdits, setSavingDoneEdits] = useState(false)
+  const [dupWarning, setDupWarning] = useState('') // item name that's already in list
+  const [swipedItemId, setSwipedItemId] = useState(null) // id of item currently swiped open
 
   const listIdRef = useRef(isNew ? null : id)
   const householdIdRef = useRef(null)
@@ -196,11 +278,27 @@ function ListPage() {
     const currentListId = await getOrCreateListId()
     if (!currentListId) { setAdding(false); return }
 
-    const already = listItems.find(
+    // Check local state first (fast)
+    const alreadyLocal = listItems.find(
       i => i.item_name.toLowerCase() === libraryItem.item_name.toLowerCase()
         && i.tab_status === 'to_buy'
     )
-    if (already) { setAdding(false); return }
+    // Also check Supabase directly (catches cross-member race condition)
+    const { data: alreadyInDb } = await supabase
+      .from('list_items')
+      .select('id')
+      .eq('list_id', currentListId)
+      .eq('tab_status', 'to_buy')
+      .ilike('item_name', libraryItem.item_name)
+      .maybeSingle()
+
+    if (alreadyLocal || alreadyInDb) {
+      setDupWarning(libraryItem.item_name)
+      clearTimeout(window.__dupTimer)
+      window.__dupTimer = setTimeout(() => setDupWarning(''), 3000)
+      setAdding(false)
+      return
+    }
 
     const { data: inserted, error } = await supabase
       .from('list_items')
@@ -471,42 +569,62 @@ function ListPage() {
         {/* ── TO BUY TAB ── */}
         {activeTab === 'to_buy' && (
           <div>
+            {/* Duplicate warning banner */}
+            {dupWarning !== '' && (
+              <div style={styles.dupBanner}>
+                <span style={styles.dupBannerText}>
+                  "{dupWarning}" is already in the list.
+                </span>
+                <button
+                  style={styles.dupBannerDismiss}
+                  onClick={() => setDupWarning('')}
+                >✕</button>
+              </div>
+            )}
+
             {toBuyItems.length === 0 ? (
               <p style={styles.emptyNote}>No items yet. Tap "+ Add items" below.</p>
             ) : (
               toBuyItems.map(item => (
-                <div
+                <SwipeToDelete
                   key={item.id}
-                  style={item.is_ticked
-                    ? { ...styles.itemRow, ...styles.itemRowTicked }
-                    : styles.itemRow
-                  }
+                  onDelete={() => removeItem(item.id)}
+                  isOpen={swipedItemId === item.id}
+                  onOpen={() => setSwipedItemId(item.id)}
+                  onClose={() => setSwipedItemId(null)}
                 >
-                  <span
+                  <div
                     style={item.is_ticked
-                      ? { ...styles.itemName, ...styles.itemNameTicked }
-                      : styles.itemName
+                      ? { ...styles.itemRow, ...styles.itemRowTicked, marginBottom: 0 }
+                      : { ...styles.itemRow, marginBottom: 0 }
                     }
                   >
-                    {item.item_name}
-                  </span>
-                  <input
-                    style={styles.qtyInput}
-                    value={item.quantity || ''}
-                    onChange={e => updateQty(item.id, e.target.value)}
-                    placeholder="Qty"
-                  />
-                  <button
-                    style={item.is_ticked
-                      ? { ...styles.tickBtn, ...styles.tickBtnActive }
-                      : styles.tickBtn
-                    }
-                    onClick={() => toggleTick(item)}
-                    aria-label={item.is_ticked ? 'Untick item' : 'Tick item'}
-                  >
-                    {item.is_ticked ? '✓' : ''}
-                  </button>
-                </div>
+                    <span
+                      style={item.is_ticked
+                        ? { ...styles.itemName, ...styles.itemNameTicked }
+                        : styles.itemName
+                      }
+                    >
+                      {item.item_name}
+                    </span>
+                    <input
+                      style={styles.qtyInput}
+                      value={item.quantity || ''}
+                      onChange={e => updateQty(item.id, e.target.value)}
+                      placeholder="Qty"
+                    />
+                    <button
+                      style={item.is_ticked
+                        ? { ...styles.tickBtn, ...styles.tickBtnActive }
+                        : styles.tickBtn
+                      }
+                      onClick={() => toggleTick(item)}
+                      aria-label={item.is_ticked ? 'Untick item' : 'Tick item'}
+                    >
+                      {item.is_ticked ? '✓' : ''}
+                    </button>
+                  </div>
+                </SwipeToDelete>
               ))
             )}
           </div>
@@ -989,6 +1107,33 @@ const styles = {
     fontWeight: '700',
     color: '#16a34a',
     flexShrink: 0,
+  },
+
+  // Duplicate warning banner
+  dupBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    background: '#fef9c3',
+    border: '1px solid #fde047',
+    borderRadius: '10px',
+    padding: '0.6rem 0.85rem',
+    marginBottom: '0.75rem',
+  },
+  dupBannerText: {
+    fontSize: '0.875rem',
+    fontWeight: '500',
+    color: '#854d0e',
+    flex: 1,
+  },
+  dupBannerDismiss: {
+    background: 'none',
+    border: 'none',
+    color: '#a16207',
+    fontSize: '0.9rem',
+    cursor: 'pointer',
+    padding: '0 0.25rem',
+    marginLeft: '0.5rem',
   },
 
   // Save bar
