@@ -102,6 +102,11 @@ function FixedCosts() {
   const [swipedCostId, setSwipedCostId] = useState(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [hoveredCostId, setHoveredCostId] = useState(null)
+  const [paidThisMonth, setPaidThisMonth] = useState({}) // { [fixed_cost_id]: true }
+  const [markedPaid, setMarkedPaid] = useState({})       // { [fixed_cost_id]: true } local only
+  const [showPaySheet, setShowPaySheet] = useState(false)
+  const [payAmounts, setPayAmounts] = useState({})       // { [fixed_cost_id]: string }
+  const [confirming, setConfirming] = useState(false)
   const channelRef = useRef(null)
   const tileRefs = useRef({}) // refs for each cost tile for scrolling
   const householdIdRef = useRef(null)
@@ -129,6 +134,7 @@ function FixedCosts() {
     householdIdRef.current = membership.household_id
 
     await loadCosts(membership.household_id)
+    await loadPaidThisMonth(membership.household_id)
     subscribeToFixedCosts(membership.household_id)
     setLoading(false)
   }
@@ -137,13 +143,39 @@ function FixedCosts() {
     if (channelRef.current) supabase.removeChannel(channelRef.current)
     const channel = supabase
       .channel(`fixed_costs_${hid}`)
+      // Watch fixed_costs — catches add/edit/delete
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'fixed_costs', filter: `household_id=eq.${hid}` },
         async () => { await loadCosts(hid) }
       )
+      // Watch fixed_cost_payments — catches when other member marks a cost paid
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fixed_cost_payments', filter: `household_id=eq.${hid}` },
+        async () => { await loadPaidThisMonth(hid) }
+      )
       .subscribe()
     channelRef.current = channel
+  }
+
+  function currentMonthYear() {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  }
+
+  async function loadPaidThisMonth(hid) {
+    const { data } = await supabase
+      .from('fixed_cost_payments')
+      .select('fixed_cost_id')
+      .eq('household_id', hid)
+      .eq('month_year', currentMonthYear())
+
+    if (data) {
+      const map = {}
+      data.forEach(r => { map[r.fixed_cost_id] = true })
+      setPaidThisMonth(map)
+    }
   }
 
   async function loadCosts(hid) {
@@ -153,6 +185,82 @@ function FixedCosts() {
       .eq('household_id', hid)
       .order('created_at', { ascending: true })
     setCosts(data || [])
+  }
+
+  function toggleMarkedPaid(costId) {
+    setMarkedPaid(prev => {
+      const next = { ...prev }
+      if (next[costId]) delete next[costId]
+      else next[costId] = true
+      return next
+    })
+  }
+
+  function openPaySheet() {
+    // Pre-fill amounts from last_amount for each marked cost
+    const amounts = {}
+    Object.keys(markedPaid).forEach(costId => {
+      const cost = costs.find(c => c.id === costId)
+      amounts[costId] = cost?.last_amount != null ? String(cost.last_amount) : ''
+    })
+    setPayAmounts(amounts)
+    setShowPaySheet(true)
+  }
+
+  async function confirmPayments() {
+    if (confirming) return
+    setConfirming(true)
+
+    const hid = householdIdRef.current
+    const uid = userIdRef.current
+    const monthYear = currentMonthYear()
+    const now = new Date().toISOString()
+
+    for (const costId of Object.keys(markedPaid)) {
+      const cost = costs.find(c => c.id === costId)
+      if (!cost) continue
+      const amount = parseFloat(payAmounts[costId]) || 0
+
+      // Insert into fixed_cost_payments
+      await supabase.from('fixed_cost_payments').insert({
+        fixed_cost_id: costId,
+        household_id: hid,
+        amount_paid: amount,
+        paid_by: uid,
+        month_year: monthYear,
+        paid_at: now,
+      })
+
+      // Insert into household_bucket
+      await supabase.from('household_bucket').insert({
+        household_id: hid,
+        source_type: 'fixed_cost',
+        source_id: costId,
+        item_name: cost.description,
+        quantity: '1',
+        amount: amount,
+        bought_by: uid,
+        bought_at: now,
+      })
+
+      // Update last_amount on fixed_costs if amount entered
+      if (amount > 0) {
+        await supabase
+          .from('fixed_costs')
+          .update({ last_amount: amount })
+          .eq('id', costId)
+      }
+    }
+
+    // Update local paid state
+    setPaidThisMonth(prev => {
+      const next = { ...prev }
+      Object.keys(markedPaid).forEach(id => { next[id] = true })
+      return next
+    })
+    setMarkedPaid({})
+    setShowPaySheet(false)
+    setConfirming(false)
   }
 
   async function deleteCost(costId) {
@@ -327,9 +435,12 @@ function FixedCosts() {
                     onDelete={() => setConfirmDeleteId(cost.id)}
                   >
                     <div
-                      style={highlightedId === cost.id
-                        ? { ...styles.costTile, ...styles.costTileHighlight }
-                        : styles.costTile
+                      style={
+                        highlightedId === cost.id
+                          ? { ...styles.costTile, ...styles.costTileHighlight }
+                          : markedPaid[cost.id]
+                          ? { ...styles.costTile, ...styles.costTileMarked }
+                          : styles.costTile
                       }
                       onClick={() => {
                         if (swipedCostId === cost.id) { setSwipedCostId(null); return }
@@ -371,6 +482,25 @@ function FixedCosts() {
                           : 'Not paid yet'
                         }
                       </span>
+
+                      {/* Paid button / badge row */}
+                      <div style={styles.paidRow}>
+                        {paidThisMonth[cost.id] ? (
+                          <span style={styles.paidBadge}>✓ Paid this month</span>
+                        ) : markedPaid[cost.id] ? (
+                          <button
+                            style={styles.undoBtn}
+                            onClick={e => { e.stopPropagation(); toggleMarkedPaid(cost.id) }}
+                            onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); toggleMarkedPaid(cost.id) }}
+                          >Undo</button>
+                        ) : (
+                          <button
+                            style={styles.markPaidBtn}
+                            onClick={e => { e.stopPropagation(); toggleMarkedPaid(cost.id) }}
+                            onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); toggleMarkedPaid(cost.id) }}
+                          >Mark as paid</button>
+                        )}
+                      </div>
                     </div>
                   </FCSwipeToDelete>
                 )}
@@ -418,6 +548,61 @@ function FixedCosts() {
         </div>
 
       </div>
+
+      {/* Save changes bar — appears when any tile is marked paid */}
+      {Object.keys(markedPaid).length > 0 && (
+        <div style={styles.saveBar}>
+          <button style={styles.saveBtn} onClick={openPaySheet}>
+            Save changes ({Object.keys(markedPaid).length} paid)
+          </button>
+        </div>
+      )}
+
+      {/* Pay bottom sheet — amount confirmation */}
+      {showPaySheet && (
+        <>
+          <div style={styles.overlay} onClick={() => setShowPaySheet(false)} />
+          <div style={styles.modal}>
+            <div style={styles.modalHandle} />
+            <div style={styles.modalHeader}>
+              <p style={styles.modalTitle}>Confirm payments</p>
+              <button style={styles.modalCloseBtn} onClick={() => setShowPaySheet(false)}>✕</button>
+            </div>
+            <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '0 0 1.25rem' }}>
+              Edit amounts if they differ from last month.
+            </p>
+
+            {Object.keys(markedPaid).map(costId => {
+              const cost = costs.find(c => c.id === costId)
+              if (!cost) return null
+              return (
+                <div key={costId} style={styles.payRow}>
+                  <span style={styles.payRowName}>{cost.description}</span>
+                  <div style={styles.priceWrapper}>
+                    <span style={styles.rupeeSymbol}>₹</span>
+                    <input
+                      style={styles.amountInput}
+                      type="number"
+                      min="0"
+                      placeholder="Amount"
+                      value={payAmounts[costId] || ''}
+                      onChange={e => setPayAmounts(prev => ({ ...prev, [costId]: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+
+            <button
+              style={confirming ? { ...styles.saveBtn, opacity: 0.6, width: '100%', borderRadius: '12px', marginTop: '1rem' } : { ...styles.saveBtn, width: '100%', borderRadius: '12px', marginTop: '1rem' }}
+              onClick={confirmPayments}
+              disabled={confirming}
+            >
+              {confirming ? 'Saving…' : 'Confirm payments'}
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Modal overlay */}
       {showModal && (
@@ -544,6 +729,89 @@ const styles = {
     gap: '0.5rem',
     marginBottom: '0.5rem',
   },
+  // Paid flow styles
+  paidRow: {
+    display: 'flex',
+    alignItems: 'center',
+    marginTop: '0.5rem',
+  },
+  markPaidBtn: {
+    padding: '0.35rem 0.85rem',
+    fontSize: '0.8rem',
+    fontWeight: '600',
+    background: '#f0fdf4',
+    color: '#16a34a',
+    border: '1px solid #bbf7d0',
+    borderRadius: '999px',
+    cursor: 'pointer',
+  },
+  undoBtn: {
+    padding: '0.35rem 0.85rem',
+    fontSize: '0.8rem',
+    fontWeight: '600',
+    background: '#fef9c3',
+    color: '#854d0e',
+    border: '1px solid #fde047',
+    borderRadius: '999px',
+    cursor: 'pointer',
+  },
+  paidBadge: {
+    fontSize: '0.8rem',
+    fontWeight: '600',
+    color: '#16a34a',
+    background: '#f0fdf4',
+    border: '1px solid #bbf7d0',
+    borderRadius: '999px',
+    padding: '0.35rem 0.75rem',
+  },
+  costTileMarked: {
+    background: '#fefce8',
+    borderColor: '#fde047',
+  },
+  saveBar: {
+    position: 'fixed',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    background: '#fff',
+    borderTop: '1px solid #f3f4f6',
+    padding: '0.75rem 1.25rem',
+    boxShadow: '0 -4px 16px rgba(0,0,0,0.06)',
+    zIndex: 40,
+  },
+  saveBtn: {
+    width: '100%',
+    padding: '0.85rem',
+    fontSize: '1rem',
+    fontWeight: '700',
+    background: '#4f46e5',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '12px',
+    cursor: 'pointer',
+  },
+  payRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '1rem',
+    marginBottom: '1rem',
+  },
+  payRowName: {
+    fontSize: '0.95rem',
+    fontWeight: '600',
+    color: '#111',
+    flex: 1,
+  },
+  priceWrapper: {
+    display: 'flex',
+    alignItems: 'center',
+    border: '1px solid #e5e7eb',
+    borderRadius: '8px',
+    overflow: 'hidden',
+    width: '130px',
+  },
+
   hoverTrashBtn: {
     background: 'none',
     border: 'none',
