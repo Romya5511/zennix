@@ -24,45 +24,85 @@ function timeAgo(isoString) {
   return `${Math.floor(diff / 86400)} day ago`
 }
 
-// Swipe-to-delete wrapper — works with mouse and touch via pointer events
+// Swipe-to-delete wrapper — works on both desktop and mobile/touch
 function SwipeToDelete({ children, onDelete, isOpen, onOpen, onClose }) {
   const startXRef = useRef(null)
-  const THRESHOLD = 60 // px to trigger open
+  const startYRef = useRef(null)
+  const isDraggingRef = useRef(false)
+  const THRESHOLD = 50
 
-  function onPointerDown(e) {
-    startXRef.current = e.clientX
+  function onTouchStart(e) {
+    startXRef.current = e.touches[0].clientX
+    startYRef.current = e.touches[0].clientY
+    isDraggingRef.current = false
   }
 
-  function onPointerUp(e) {
+  function onTouchMove(e) {
     if (startXRef.current === null) return
-    const diff = startXRef.current - e.clientX
-    if (diff > THRESHOLD) {
+    const diffX = startXRef.current - e.touches[0].clientX
+    const diffY = Math.abs(startYRef.current - e.touches[0].clientY)
+    // Only treat as swipe if horizontal movement dominates
+    if (Math.abs(diffX) > diffY && Math.abs(diffX) > 10) {
+      isDraggingRef.current = true
+      e.preventDefault()
+    }
+  }
+
+  function onTouchEnd(e) {
+    if (!isDraggingRef.current || startXRef.current === null) {
+      startXRef.current = null
+      isDraggingRef.current = false
+      return
+    }
+    const diffX = startXRef.current - e.changedTouches[0].clientX
+    if (diffX > THRESHOLD) {
       onOpen()
-    } else if (diff < -20) {
+    } else if (diffX < -20) {
       onClose()
+    }
+    startXRef.current = null
+    isDraggingRef.current = false
+  }
+
+  // Desktop mouse support
+  function onMouseDown(e) {
+    startXRef.current = e.clientX
+    isDraggingRef.current = false
+  }
+
+  function onMouseUp(e) {
+    if (startXRef.current === null) return
+    const diffX = startXRef.current - e.clientX
+    if (Math.abs(diffX) > 10) {
+      if (diffX > THRESHOLD) onOpen()
+      else if (diffX < -20) onClose()
     }
     startXRef.current = null
   }
 
   return (
     <div style={swipeStyles.wrapper}>
-      {/* Delete button revealed behind */}
+      {/* Delete button — sits at right edge, always visible when row is slid */}
       <div style={swipeStyles.deleteSlot}>
         <button
           style={swipeStyles.deleteBtn}
+          onTouchEnd={e => { e.stopPropagation(); onClose(); onDelete() }}
           onClick={() => { onClose(); onDelete() }}
         >
-          Delete
+          🗑 Delete
         </button>
       </div>
-      {/* Sliding row */}
+      {/* Row that slides */}
       <div
         style={{
           ...swipeStyles.slider,
-          transform: isOpen ? 'translateX(-80px)' : 'translateX(0)',
+          transform: isOpen ? 'translateX(-88px)' : 'translateX(0)',
         }}
-        onPointerDown={onPointerDown}
-        onPointerUp={onPointerUp}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onMouseDown={onMouseDown}
+        onMouseUp={onMouseUp}
       >
         {children}
       </div>
@@ -73,33 +113,35 @@ function SwipeToDelete({ children, onDelete, isOpen, onOpen, onClose }) {
 const swipeStyles = {
   wrapper: {
     position: 'relative',
-    overflow: 'hidden',
-    borderRadius: '12px',
     marginBottom: '0.5rem',
+    // No overflow:hidden — lets the row slide visually over the delete button
   },
   deleteSlot: {
     position: 'absolute',
     right: 0,
     top: 0,
     bottom: 0,
-    width: '80px',
+    width: '88px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     background: '#ef4444',
     borderRadius: '12px',
+    zIndex: 0,
   },
   deleteBtn: {
     background: 'none',
     border: 'none',
     color: '#fff',
-    fontSize: '0.875rem',
+    fontSize: '0.8rem',
     fontWeight: '700',
     cursor: 'pointer',
     padding: '0.5rem',
   },
   slider: {
-    transition: 'transform 0.2s ease',
+    position: 'relative',
+    zIndex: 1,
+    transition: 'transform 0.22s ease',
     willChange: 'transform',
   },
 }
@@ -618,6 +660,10 @@ function ListPage() {
                         ? { ...styles.tickBtn, ...styles.tickBtnActive }
                         : styles.tickBtn
                       }
+                      onMouseDown={e => e.stopPropagation()}
+                      onMouseUp={e => e.stopPropagation()}
+                      onTouchStart={e => e.stopPropagation()}
+                      onTouchEnd={e => { e.stopPropagation(); toggleTick(item) }}
                       onClick={() => toggleTick(item)}
                       aria-label={item.is_ticked ? 'Untick item' : 'Tick item'}
                     >
