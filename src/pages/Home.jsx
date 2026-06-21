@@ -236,10 +236,9 @@ function Home() {
         )}
 
         <div style={styles.placeholderRow}>
-          <button style={styles.placeholderBtn} disabled>
+          <button style={styles.placeholderBtnActive} onClick={() => navigate('/fixed-costs')}>
             <span style={styles.placeholderIcon}>📅</span>
             <span style={styles.placeholderLabel}>Fixed costs</span>
-            <span style={styles.comingSoon}>Coming soon</span>
           </button>
           <button style={styles.placeholderBtn} disabled>
             <span style={styles.placeholderIcon}>📊</span>
@@ -288,6 +287,7 @@ const styles = {
   createBtn: { width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: '700', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '12px', cursor: 'pointer', marginTop: '0.25rem' },
 
   placeholderRow: { display: 'flex', gap: '0.75rem' },
+  placeholderBtnActive: { flex: 1, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '14px', padding: '1rem 0.75rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' },
   placeholderBtn: { flex: 1, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '14px', padding: '1rem 0.75rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem', cursor: 'not-allowed', opacity: 0.6 },
   placeholderIcon: { fontSize: '1.5rem' },
   placeholderLabel: { fontSize: '0.85rem', fontWeight: '600', color: '#444' },

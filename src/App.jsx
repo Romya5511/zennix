@@ -7,6 +7,7 @@ import Setup from './pages/Setup'
 import Join from './pages/Join'
 import Dashboard from './pages/Dashboard'
 import ListPage from './pages/ListPage'
+import FixedCosts from './pages/FixedCosts'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -16,8 +17,6 @@ function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       setLoading(false)
-
-      // Save profile whenever we detect a session on load
       if (session?.user) {
         saveProfile(session.user)
       }
@@ -25,8 +24,6 @@ function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
-
-      // Save profile on every sign-in event
       if (session?.user) {
         saveProfile(session.user)
       }
@@ -48,18 +45,18 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Public route — always accessible */}
         <Route path="/join" element={<Join />} />
 
         {!user ? (
           <Route path="*" element={<Login />} />
         ) : (
           <>
-            <Route path="/"          element={<Home />} />
-            <Route path="/setup"     element={<Setup />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/list/:id"  element={<ListPage />} />
-            <Route path="*"          element={<Navigate to="/" />} />
+            <Route path="/"             element={<Home />} />
+            <Route path="/setup"        element={<Setup />} />
+            <Route path="/dashboard"    element={<Dashboard />} />
+            <Route path="/list/:id"     element={<ListPage />} />
+            <Route path="/fixed-costs"  element={<FixedCosts />} />
+            <Route path="*"             element={<Navigate to="/" />} />
           </>
         )}
       </Routes>
