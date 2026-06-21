@@ -161,6 +161,7 @@ function ListPage() {
   const [showLibrary, setShowLibrary] = useState(false)
   const [adding, setAdding] = useState(false)
   const [savingChanges, setSavingChanges] = useState(false)
+  const [listStatus, setListStatus] = useState('active') // 'active' | 'completed'
   const [doneEdits, setDoneEdits] = useState({})   // { [itemId]: { qty, price } }
   const [savingDoneEdits, setSavingDoneEdits] = useState(false)
   const [dupWarning, setDupWarning] = useState('') // item name that's already in list
@@ -246,6 +247,14 @@ function ListPage() {
         .eq('list_id', id)
         .order('display_order', { ascending: true })
       setListItems(items || [])
+
+      // Load list status so we know if it's completed (read-only)
+      const { data: listRow } = await supabase
+        .from('grocery_lists')
+        .select('status')
+        .eq('id', id)
+        .maybeSingle()
+      if (listRow) setListStatus(listRow.status)
     }
 
     await loadLibrary(membership.household_id)
@@ -517,6 +526,43 @@ function ListPage() {
         bought_by: item.ticked_by,
         bought_at: now,
       })
+
+    // Auto-completion check — skip if user has unsaved Done tab edits
+    if (Object.keys(doneEdits).length > 0) return
+
+    const { count: totalCount } = await supabase
+      .from('list_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('list_id', currentListId)
+
+    const { count: doneCount } = await supabase
+      .from('list_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('list_id', currentListId)
+      .eq('tab_status', 'done')
+
+    if (totalCount > 0 && totalCount === doneCount) {
+      // All items done — calculate total and mark list completed
+      const { data: allItems } = await supabase
+        .from('list_items')
+        .select('price_entered')
+        .eq('list_id', currentListId)
+
+      const total = (allItems || []).reduce(
+        (sum, i) => sum + (parseFloat(i.price_entered) || 0), 0
+      )
+
+      await supabase
+        .from('grocery_lists')
+        .update({
+          status: 'completed',
+          completed_at: now,
+          total_amount: total,
+        })
+        .eq('id', currentListId)
+
+      setListStatus('completed')
+    }
   }
 
   // Save edits made on Done tab rows
@@ -589,6 +635,14 @@ function ListPage() {
         <h1 style={styles.title}>Grocery List</h1>
       </div>
 
+      {/* Completed banner — shown when list is done */}
+      {listStatus === 'completed' && (
+        <div style={styles.completedBanner}>
+          <span style={styles.completedBannerIcon}>🎉</span>
+          <span style={styles.completedBannerText}>This list is complete — it's now read-only.</span>
+        </div>
+      )}
+
       {/* Tab bar */}
       <div style={styles.tabs}>
         <button
@@ -660,11 +714,26 @@ function ListPage() {
                         ? { ...styles.tickBtn, ...styles.tickBtnActive }
                         : styles.tickBtn
                       }
+                      onTouchStart={e => {
+                        e.stopPropagation()
+                        e.currentTarget._touchFired = true
+                      }}
+                      onTouchEnd={e => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        if (listStatus !== 'completed') toggleTick(item)
+                      }}
                       onMouseDown={e => e.stopPropagation()}
-                      onMouseUp={e => { e.stopPropagation(); toggleTick(item) }}
-                      onTouchStart={e => e.stopPropagation()}
-                      onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); toggleTick(item) }}
+                      onMouseUp={e => {
+                        e.stopPropagation()
+                        if (e.currentTarget._touchFired) {
+                          e.currentTarget._touchFired = false
+                          return
+                        }
+                        if (listStatus !== 'completed') toggleTick(item)
+                      }}
                       aria-label={item.is_ticked ? 'Untick item' : 'Tick item'}
+                      disabled={listStatus === 'completed'}
                     >
                       {item.is_ticked ? '✓' : ''}
                     </button>
@@ -711,14 +780,13 @@ function ListPage() {
                     <input
                       style={styles.priceInput}
                       type="number"
-                      placeholder="Price"
+                      placeholder={listStatus === 'completed' ? '—' : 'Price'}
                       min="0"
-                      onBlur={e => enterPrice(item, e.target.value)}
+                      onBlur={e => listStatus !== 'completed' && enterPrice(item, e.target.value)}
                       onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.target.blur()
-                        }
+                        if (e.key === 'Enter' && listStatus !== 'completed') e.target.blur()
                       }}
+                      readOnly={listStatus === 'completed'}
                     />
                   </div>
                 </div>
@@ -763,7 +831,7 @@ function ListPage() {
                         : styles.doneRow
                       }
                       onClick={() => {
-                        if (!isEditing) {
+                        if (!isEditing && listStatus !== 'completed') {
                           setDoneEdits(prev => ({
                             ...prev,
                             [item.id]: {
@@ -835,8 +903,8 @@ function ListPage() {
 
       </div>
 
-      {/* Save changes bar */}
-      {activeTab === 'to_buy' && anyTicked && (
+      {/* Save changes bar — hidden when list is completed */}
+      {activeTab === 'to_buy' && anyTicked && listStatus !== 'completed' && (
         <div style={styles.saveBar}>
           <button
             style={savingChanges ? { ...styles.saveBtn, opacity: 0.6 } : styles.saveBtn}
@@ -848,8 +916,8 @@ function ListPage() {
         </div>
       )}
 
-      {/* Save changes bar — Done tab edits */}
-      {activeTab === 'done' && Object.keys(doneEdits).length > 0 && (
+      {/* Save changes bar — Done tab edits — hidden when completed */}
+      {activeTab === 'done' && Object.keys(doneEdits).length > 0 && listStatus !== 'completed' && (
         <div style={styles.saveBar}>
           <button
             style={savingDoneEdits ? { ...styles.saveBtn, opacity: 0.6 } : styles.saveBtn}
@@ -861,8 +929,8 @@ function ListPage() {
         </div>
       )}
 
-      {/* Floating Add Items button */}
-      {activeTab === 'to_buy' && (
+      {/* Floating Add Items button — hidden when list is completed */}
+      {activeTab === 'to_buy' && listStatus !== 'completed' && (
         <button
           style={anyTicked ? { ...styles.fab, bottom: '6rem' } : styles.fab}
           onClick={() => { setShowLibrary(true); setSearch('') }}
@@ -1152,6 +1220,24 @@ const styles = {
     fontWeight: '700',
     color: '#16a34a',
     flexShrink: 0,
+  },
+
+  // Completed list banner
+  completedBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    background: '#f0fdf4',
+    borderBottom: '1px solid #bbf7d0',
+    padding: '0.65rem 1rem',
+  },
+  completedBannerIcon: {
+    fontSize: '1rem',
+  },
+  completedBannerText: {
+    fontSize: '0.85rem',
+    fontWeight: '600',
+    color: '#16a34a',
   },
 
   // Duplicate warning banner

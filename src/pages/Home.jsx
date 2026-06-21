@@ -8,6 +8,7 @@ function Home() {
   const [profile, setProfile] = useState(null)
   const [householdId, setHouseholdId] = useState(null)
   const [activeList, setActiveList] = useState(null)
+  const [completedList, setCompletedList] = useState(null) // most recently completed list
   const [itemCount, setItemCount] = useState(0)
   const [creatorName, setCreatorName] = useState('')
   const channelRef = useRef(null)
@@ -44,13 +45,14 @@ function Home() {
     setHouseholdId(hid)
     householdIdRef.current = hid
 
-    await checkActiveList(hid)
+    await checkLists(hid)
     subscribeToHousehold(hid)
     setLoading(false)
   }
 
-  async function checkActiveList(hid) {
-    const { data: lists } = await supabase
+  async function checkLists(hid) {
+    // Check for active list first
+    const { data: activeLists } = await supabase
       .from('grocery_lists')
       .select('id, created_at, created_by, status')
       .eq('household_id', hid)
@@ -58,37 +60,54 @@ function Home() {
       .order('created_at', { ascending: false })
       .limit(5)
 
-    if (!lists || lists.length === 0) {
-      setActiveList(null)
-      setItemCount(0)
-      setCreatorName('')
-      return
-    }
+    if (activeLists && activeLists.length > 0) {
+      for (const list of activeLists) {
+        const { count } = await supabase
+          .from('list_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('list_id', list.id)
 
-    for (const list of lists) {
-      const { count } = await supabase
-        .from('list_items')
-        .select('id', { count: 'exact', head: true })
-        .eq('list_id', list.id)
-
-      if (count && count > 0) {
-        setActiveList(list)
-        setItemCount(count)
-
-        const { data: creator } = await supabase
-          .from('profiles')
-          .select('full_name')
-          .eq('id', list.created_by)
-          .maybeSingle()
-        setCreatorName(creator?.full_name || 'Someone')
-        return
+        if (count && count > 0) {
+          setActiveList(list)
+          setCompletedList(null)
+          setItemCount(count)
+          const { data: creator } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', list.created_by)
+            .maybeSingle()
+          setCreatorName(creator?.full_name || 'Someone')
+          return
+        }
       }
     }
 
-    // No list with items found
-    setActiveList(null)
-    setItemCount(0)
-    setCreatorName('')
+    // No active list — check for most recently completed list
+    const { data: completed } = await supabase
+      .from('grocery_lists')
+      .select('id, completed_at, total_amount, status')
+      .eq('household_id', hid)
+      .eq('status', 'completed')
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (completed) {
+      // Count items in completed list
+      const { count: doneCount } = await supabase
+        .from('list_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('list_id', completed.id)
+      setCompletedList({ ...completed, itemCount: doneCount || 0 })
+      setActiveList(null)
+      setItemCount(0)
+      setCreatorName('')
+    } else {
+      setActiveList(null)
+      setCompletedList(null)
+      setItemCount(0)
+      setCreatorName('')
+    }
   }
 
   function subscribeToHousehold(hid) {
@@ -98,30 +117,15 @@ function Home() {
 
     const channel = supabase
       .channel(`home_${hid}`)
-      // Watch grocery_lists for this household
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'grocery_lists',
-          filter: `household_id=eq.${hid}`,
-        },
-        async () => {
-          await checkActiveList(householdIdRef.current)
-        }
+        { event: '*', schema: 'public', table: 'grocery_lists', filter: `household_id=eq.${hid}` },
+        async () => { await checkLists(householdIdRef.current) }
       )
-      // Watch list_items so item count updates in real time
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'list_items',
-        },
-        async () => {
-          await checkActiveList(householdIdRef.current)
-        }
+        { event: '*', schema: 'public', table: 'list_items' },
+        async () => { await checkLists(householdIdRef.current) }
       )
       .subscribe()
 
@@ -166,6 +170,7 @@ function Home() {
         </div>
 
         {activeList ? (
+          // Active list card
           <div style={styles.listCard}>
             <div style={styles.listCardTop}>
               <span style={styles.activeBadge}>● Active list</span>
@@ -184,7 +189,38 @@ function Home() {
               Open list →
             </button>
           </div>
+
+        ) : completedList ? (
+          // Completion card — shows after list is fully done
+          <div style={styles.completionCard}>
+            <div style={styles.completionTop}>
+              <span style={styles.completionEmoji}>🎉</span>
+              <span style={styles.completionBadge}>List complete!</span>
+            </div>
+            <div style={styles.completionBody}>
+              <p style={styles.completionTotal}>
+                ₹{parseFloat(completedList.total_amount || 0).toFixed(2)}
+              </p>
+              <p style={styles.completionMeta}>
+                {completedList.itemCount} {completedList.itemCount === 1 ? 'item' : 'items'} · {formatDate(completedList.completed_at)}
+              </p>
+            </div>
+            <button
+              style={styles.openListBtn}
+              onClick={() => navigate(`/list/${completedList.id}`)}
+            >
+              View list →
+            </button>
+            <button
+              style={styles.startNewBtn}
+              onClick={() => setCompletedList(null)}
+            >
+              + Start new list
+            </button>
+          </div>
+
         ) : (
+          // Empty state — create new list
           <div style={styles.emptyCard}>
             <p style={styles.emptyText}>No active grocery list</p>
             <p style={styles.emptySubText}>
@@ -224,6 +260,8 @@ const styles = {
   greeting: { marginBottom: '0.5rem' },
   greetingText: { fontSize: '1.5rem', fontWeight: '700', color: '#111', margin: '0 0 0.25rem' },
   subText: { fontSize: '0.9rem', color: '#888', margin: 0 },
+
+  // Active list card
   listCard: { background: '#fff', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', display: 'flex', flexDirection: 'column', gap: '1rem' },
   listCardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   activeBadge: { fontSize: '0.75rem', fontWeight: '700', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em' },
@@ -232,10 +270,23 @@ const styles = {
   listStat: { fontSize: '1.1rem', color: '#111', margin: 0 },
   listCreator: { fontSize: '0.85rem', color: '#888', margin: 0 },
   openListBtn: { width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: '700', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '12px', cursor: 'pointer' },
+
+  // Completion card
+  completionCard: { background: '#fff', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', display: 'flex', flexDirection: 'column', gap: '1rem', border: '1px solid #bbf7d0' },
+  completionTop: { display: 'flex', alignItems: 'center', gap: '0.5rem' },
+  completionEmoji: { fontSize: '1.25rem' },
+  completionBadge: { fontSize: '0.85rem', fontWeight: '700', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em' },
+  completionBody: { display: 'flex', flexDirection: 'column', gap: '0.25rem' },
+  completionTotal: { fontSize: '2rem', fontWeight: '800', color: '#111', margin: 0 },
+  completionMeta: { fontSize: '0.875rem', color: '#888', margin: 0 },
+  startNewBtn: { width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: '700', backgroundColor: '#fff', color: '#4f46e5', border: '2px solid #4f46e5', borderRadius: '12px', cursor: 'pointer' },
+
+  // Empty state
   emptyCard: { background: '#fff', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' },
   emptyText: { fontSize: '1rem', fontWeight: '600', color: '#111', margin: 0 },
   emptySubText: { fontSize: '0.875rem', color: '#888', margin: 0, lineHeight: '1.5' },
   createBtn: { width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: '700', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '12px', cursor: 'pointer', marginTop: '0.25rem' },
+
   placeholderRow: { display: 'flex', gap: '0.75rem' },
   placeholderBtn: { flex: 1, background: '#fff', border: '1px solid #e5e7eb', borderRadius: '14px', padding: '1rem 0.75rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem', cursor: 'not-allowed', opacity: 0.6 },
   placeholderIcon: { fontSize: '1.5rem' },
