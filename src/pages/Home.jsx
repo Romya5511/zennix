@@ -207,7 +207,7 @@ function Home() {
             </div>
             <button
               style={styles.openListBtn}
-              onClick={() => navigate(`/list/${completedList.id}`)}
+              onClick={() => navigate(`/list/${completedList.id}?tab=done`)}
             >
               View list →
             </button>

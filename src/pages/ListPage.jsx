@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
 const SEED_ITEMS = [
@@ -149,6 +149,7 @@ const swipeStyles = {
 function ListPage() {
   const navigate = useNavigate()
   const { id } = useParams()
+  const [searchParams] = useSearchParams()
   const isNew = id === 'new'
 
   const [loading, setLoading] = useState(true)
@@ -157,7 +158,7 @@ function ListPage() {
   const [listItems, setListItems] = useState([])
   const [profiles, setProfiles] = useState({}) // { [userId]: full_name }
   const [search, setSearch] = useState('')
-  const [activeTab, setActiveTab] = useState('to_buy')
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'to_buy')
   const [showLibrary, setShowLibrary] = useState(false)
   const [adding, setAdding] = useState(false)
   const [savingChanges, setSavingChanges] = useState(false)
