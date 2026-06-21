@@ -661,10 +661,9 @@ function ListPage() {
                         : styles.tickBtn
                       }
                       onMouseDown={e => e.stopPropagation()}
-                      onMouseUp={e => e.stopPropagation()}
+                      onMouseUp={e => { e.stopPropagation(); toggleTick(item) }}
                       onTouchStart={e => e.stopPropagation()}
-                      onTouchEnd={e => { e.stopPropagation(); toggleTick(item) }}
-                      onClick={() => toggleTick(item)}
+                      onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); toggleTick(item) }}
                       aria-label={item.is_ticked ? 'Untick item' : 'Tick item'}
                     >
                       {item.is_ticked ? '✓' : ''}
