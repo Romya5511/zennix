@@ -9,10 +9,6 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      // Use our custom service worker for push + notificationclick support
-      strategies: 'injectManifest',
-      srcDir: 'src',
-      filename: 'sw.js',
       manifest: {
         name: 'Zennix',
         short_name: 'Zennix',
@@ -25,10 +21,6 @@ export default defineConfig({
           { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icon-512.png', sizes: '512x512', type: 'image/png' }
         ]
-      },
-      injectManifest: {
-        swSrc: 'src/sw.js',
-        swDest: 'dist/sw.js',
       }
     })
   ],
