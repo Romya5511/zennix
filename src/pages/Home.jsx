@@ -95,6 +95,9 @@ function Home() {
             .maybeSingle()
           setCreatorName(creator?.full_name || 'Someone')
           return
+        } else {
+          // Empty active list — delete it so it doesn't block the home screen
+          await supabase.from('grocery_lists').delete().eq('id', list.id)
         }
       }
     }

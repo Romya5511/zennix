@@ -298,16 +298,28 @@ function ListPage() {
       .maybeSingle()
 
     if (existing) {
-      listIdRef.current = existing.id
-      setListId(existing.id)
-      window.history.replaceState(null, '', `/list/${existing.id}`)
-      const { data: items } = await supabase
+      // Check if this active list actually has items
+      const { count } = await supabase
         .from('list_items')
-        .select('*')
+        .select('id', { count: 'exact', head: true })
         .eq('list_id', existing.id)
-        .order('display_order', { ascending: true })
-      setListItems(items || [])
-      return existing.id
+
+      if (count && count > 0) {
+        // Has items — use it
+        listIdRef.current = existing.id
+        setListId(existing.id)
+        window.history.replaceState(null, '', `/list/${existing.id}`)
+        const { data: items } = await supabase
+          .from('list_items')
+          .select('*')
+          .eq('list_id', existing.id)
+          .order('display_order', { ascending: true })
+        setListItems(items || [])
+        return existing.id
+      } else {
+        // Empty active list — delete it and fall through to create a fresh one
+        await supabase.from('grocery_lists').delete().eq('id', existing.id)
+      }
     }
 
     const { data: newList, error } = await supabase
