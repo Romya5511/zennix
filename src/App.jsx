@@ -8,6 +8,7 @@ import Join from './pages/Join'
 import Dashboard from './pages/Dashboard'
 import ListPage from './pages/ListPage'
 import FixedCosts from './pages/FixedCosts'
+import IOSInstallBanner from './components/IOSInstallBanner'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -60,6 +61,7 @@ function App() {
           </>
         )}
       </Routes>
+      <IOSInstallBanner />
     </BrowserRouter>
   )
 }
