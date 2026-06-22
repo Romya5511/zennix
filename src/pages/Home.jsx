@@ -1,10 +1,13 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import PushPermissionModal from '../components/PushPermissionModal'
 import { supabase } from '../lib/supabase'
 
 function Home() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
+  const [showPushModal, setShowPushModal] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState(null)
   const [profile, setProfile] = useState(null)
   const [householdId, setHouseholdId] = useState(null)
   const [activeList, setActiveList] = useState(null)
@@ -33,6 +36,20 @@ function Home() {
       .eq('id', user.id)
       .maybeSingle()
     setProfile(profileData)
+    setCurrentUserId(user.id)
+
+    // Show push permission modal if not already subscribed and not seen this session
+    if (!sessionStorage.getItem('push_prompt_seen')) {
+      const { data: profileFull } = await supabase
+        .from('profiles')
+        .select('push_subscription')
+        .eq('id', user.id)
+        .maybeSingle()
+      if (!profileFull?.push_subscription && 'Notification' in window && 'serviceWorker' in navigator) {
+        setShowPushModal(true)
+      }
+      sessionStorage.setItem('push_prompt_seen', '1')
+    }
 
     const { data: membership } = await supabase
       .from('household_members')
@@ -248,6 +265,12 @@ function Home() {
         </div>
 
       </div>
+      {showPushModal && (
+        <PushPermissionModal
+          userId={currentUserId}
+          onDone={() => setShowPushModal(false)}
+        />
+      )}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { sendPush } from '../lib/push'
 import { supabase } from '../lib/supabase'
 
 const SEED_ITEMS = [
@@ -380,6 +381,21 @@ function ListPage() {
           : i
         )
       )
+
+      // Trigger 1: notify partner only when FIRST item is added to the list
+      const currentItems = listItems.filter(i => i.tab_status === 'to_buy')
+      if (currentItems.length === 0) {
+        const { data: profileData } = await supabase
+          .from('profiles').select('full_name').eq('id', userIdRef.current).maybeSingle()
+        const name = profileData?.full_name?.split(' ')[0] || 'Someone'
+        await sendPush({
+          householdId: householdIdRef.current,
+          senderId: userIdRef.current,
+          title: 'New grocery list started',
+          body: `${name} started a list. Tap to add items.`,
+          url: `/list/${listIdRef.current}`,
+        })
+      }
     }
 
     setAdding(false)
@@ -480,6 +496,19 @@ function ListPage() {
       })
       .in('id', tickedIds)
 
+    // Trigger 2: notify partner after Save changes
+    const remaining = toBuyItems.filter(i => !tickedIds.includes(i.id)).length
+    const { data: profileData } = await supabase
+      .from('profiles').select('full_name').eq('id', uid).maybeSingle()
+    const name = profileData?.full_name?.split(' ')[0] || 'Someone'
+    await sendPush({
+      householdId: householdIdRef.current,
+      senderId: uid,
+      title: 'Items bought',
+      body: `${name} bought ${tickedIds.length} item${tickedIds.length > 1 ? 's' : ''}. ${remaining} left to price.`,
+      url: `/list/${listIdRef.current}?tab=pricing`,
+    })
+
     setSavingChanges(false)
   }
 
@@ -528,6 +557,24 @@ function ListPage() {
         bought_at: now,
       })
 
+    // Trigger 3: notify partner when price is entered
+    const { data: profileData } = await supabase
+      .from('profiles').select('full_name').eq('id', uid).maybeSingle()
+    const senderName = profileData?.full_name?.split(' ')[0] || 'Someone'
+    const { data: allDone } = await supabase
+      .from('list_items')
+      .select('price_entered')
+      .eq('list_id', currentListId)
+      .eq('tab_status', 'done')
+    const runningTotal = (allDone || []).reduce((sum, i) => sum + (parseFloat(i.price_entered) || 0), 0)
+    await sendPush({
+      householdId: hid,
+      senderId: uid,
+      title: 'Price entered',
+      body: `${senderName} entered prices. Total so far: ₹${runningTotal.toFixed(0)}.`,
+      url: `/list/${currentListId}?tab=done`,
+    })
+
     // Auto-completion check — skip if user has unsaved Done tab edits
     if (Object.keys(doneEdits).length > 0) return
 
@@ -563,6 +610,15 @@ function ListPage() {
         .eq('id', currentListId)
 
       setListStatus('completed')
+
+      // Trigger 4: notify partner that list is complete
+      await sendPush({
+        householdId: hid,
+        senderId: uid,
+        title: '🎉 List complete!',
+        body: `${senderName} finished the list. Total: ₹${total.toFixed(0)}.`,
+        url: `/list/${currentListId}?tab=done`,
+      })
     }
   }
 
