@@ -1,5 +1,8 @@
 // Zennix Service Worker
-// Handles push events and notification clicks
+import { precacheAndRoute } from 'workbox-precaching'
+
+// Required by vite-plugin-pwa injectManifest strategy
+precacheAndRoute(self.__WB_MANIFEST)
 
 self.addEventListener('push', event => {
   if (!event.data) return
@@ -28,12 +31,10 @@ self.addEventListener('notificationclick', event => {
   event.notification.close()
 
   const data = event.notification.data || {}
-  // url can be passed in notification data e.g. '/fixed-costs' or '/list/123'
   const url = data.url || '/'
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
-      // If app is already open, focus it and navigate
       for (const client of clientList) {
         if ('focus' in client) {
           client.focus()
@@ -41,7 +42,6 @@ self.addEventListener('notificationclick', event => {
           return
         }
       }
-      // Otherwise open a new window
       if (clients.openWindow) return clients.openWindow(url)
     })
   )
