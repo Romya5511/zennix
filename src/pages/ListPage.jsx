@@ -935,7 +935,7 @@ function ListPage() {
                         : styles.doneRow
                       }
                       onClick={() => {
-                        if (!isEditing && listStatus !== 'completed') {
+                        if (!isEditing) {
                           setDoneEdits(prev => ({
                             ...prev,
                             [item.id]: {
@@ -1034,7 +1034,7 @@ function ListPage() {
       )}
 
       {/* Save changes bar — Done tab edits — hidden when completed */}
-      {activeTab === 'done' && Object.keys(doneEdits).length > 0 && listStatus !== 'completed' && (
+      {activeTab === 'done' && Object.keys(doneEdits).length > 0 && (
         <div style={styles.saveBar}>
           <button
             style={savingDoneEdits ? { ...styles.saveBtn, opacity: 0.6 } : styles.saveBtn}
