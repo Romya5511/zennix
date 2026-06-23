@@ -617,11 +617,14 @@ function ListPage() {
       setListStatus('completed')
 
       // Trigger 4: notify partner that list is complete
+      const { data: completionProfile } = await supabase
+        .from('profiles').select('full_name').eq('id', uid).maybeSingle()
+      const completionName = completionProfile?.full_name?.split(' ')[0] || 'Someone'
       await sendPush({
         householdId: hid,
         senderId: uid,
         title: '🎉 List complete!',
-        body: `${senderName} finished the list. Total: ₹${total.toFixed(0)}.`,
+        body: `${completionName} finished the list. Total: ₹${total.toFixed(0)}.`,
         url: `/list/${currentListId}?tab=done`,
       })
     }
