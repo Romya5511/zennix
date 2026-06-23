@@ -167,6 +167,8 @@ function ListPage() {
   const [doneEdits, setDoneEdits] = useState({})   // { [itemId]: { qty, price } }
   const [savingDoneEdits, setSavingDoneEdits] = useState(false)
   const [dupWarning, setDupWarning] = useState('') // item name that's already in list
+  const [pricingInputs, setPricingInputs] = useState({}) // { [itemId]: priceString } local only
+  const [savingPricing, setSavingPricing] = useState(false)
   const [swipedItemId, setSwipedItemId] = useState(null) // id of item currently swiped open
 
   const listIdRef = useRef(isNew ? null : id)
@@ -298,14 +300,20 @@ function ListPage() {
       .maybeSingle()
 
     if (existing) {
-      // Check if this active list actually has items
-      const { count } = await supabase
+      // Check if this active list has any done items — if so it's a stale list
+      const { count: doneCount } = await supabase
+        .from('list_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('list_id', existing.id)
+        .eq('tab_status', 'done')
+
+      const { count: totalCount } = await supabase
         .from('list_items')
         .select('id', { count: 'exact', head: true })
         .eq('list_id', existing.id)
 
-      if (count && count > 0) {
-        // Has items — use it
+      if (totalCount && totalCount > 0 && (!doneCount || doneCount < totalCount)) {
+        // Has active items — use it
         listIdRef.current = existing.id
         setListId(existing.id)
         window.history.replaceState(null, '', `/list/${existing.id}`)
@@ -317,8 +325,11 @@ function ListPage() {
         setListItems(items || [])
         return existing.id
       } else {
-        // Empty active list — delete it and fall through to create a fresh one
-        await supabase.from('grocery_lists').delete().eq('id', existing.id)
+        // Empty or fully-done list stuck as active — abandon it and create fresh
+        await supabase
+          .from('grocery_lists')
+          .update({ status: 'abandoned' })
+          .eq('id', existing.id)
       }
     }
 
@@ -569,24 +580,6 @@ function ListPage() {
         bought_at: now,
       })
 
-    // Trigger 3: notify partner when price is entered
-    const { data: profileData } = await supabase
-      .from('profiles').select('full_name').eq('id', uid).maybeSingle()
-    const senderName = profileData?.full_name?.split(' ')[0] || 'Someone'
-    const { data: allDone } = await supabase
-      .from('list_items')
-      .select('price_entered')
-      .eq('list_id', currentListId)
-      .eq('tab_status', 'done')
-    const runningTotal = (allDone || []).reduce((sum, i) => sum + (parseFloat(i.price_entered) || 0), 0)
-    await sendPush({
-      householdId: hid,
-      senderId: uid,
-      title: 'Price entered',
-      body: `${senderName} entered prices. Total so far: ₹${runningTotal.toFixed(0)}.`,
-      url: `/list/${currentListId}?tab=done`,
-    })
-
     // Auto-completion check — skip if user has unsaved Done tab edits
     if (Object.keys(doneEdits).length > 0) return
 
@@ -671,6 +664,44 @@ function ListPage() {
 
     setDoneEdits({})
     setSavingDoneEdits(false)
+  }
+
+  // Save all locally entered prices at once
+  async function savePricingItems() {
+    if (savingPricing) return
+    const entries = Object.entries(pricingInputs).filter(([, v]) => v && parseFloat(v) > 0)
+    if (entries.length === 0) return
+    setSavingPricing(true)
+
+    for (const [itemId, priceValue] of entries) {
+      const item = pricingItems.find(i => i.id === itemId)
+      if (!item) continue
+      await enterPrice(item, priceValue)
+    }
+
+    // One notification after all prices saved
+    const uid = userIdRef.current
+    const hid = householdIdRef.current
+    const currentListId = listIdRef.current
+    const { data: profileData } = await supabase
+      .from('profiles').select('full_name').eq('id', uid).maybeSingle()
+    const senderName = profileData?.full_name?.split(' ')[0] || 'Someone'
+    const { data: allDone } = await supabase
+      .from('list_items')
+      .select('price_entered')
+      .eq('list_id', currentListId)
+      .eq('tab_status', 'done')
+    const runningTotal = (allDone || []).reduce((sum, i) => sum + (parseFloat(i.price_entered) || 0), 0)
+    await sendPush({
+      householdId: hid,
+      senderId: uid,
+      title: 'Prices entered',
+      body: `${senderName} entered prices. Total so far: ₹${runningTotal.toFixed(0)}.`,
+      url: `/list/${currentListId}?tab=done`,
+    })
+
+    setPricingInputs({})
+    setSavingPricing(false)
   }
 
   const toBuyItems = listItems.filter(i => i.tab_status === 'to_buy')
@@ -843,7 +874,7 @@ function ListPage() {
                     placeholder="Qty"
                   />
 
-                  {/* Right: price input */}
+                  {/* Right: price input — stores locally until Save is tapped */}
                   <div style={styles.priceWrapper}>
                     <span style={styles.rupeeSymbol}>₹</span>
                     <input
@@ -851,9 +882,10 @@ function ListPage() {
                       type="number"
                       placeholder={listStatus === 'completed' ? '—' : 'Price'}
                       min="0"
-                      onBlur={e => listStatus !== 'completed' && enterPrice(item, e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && listStatus !== 'completed') e.target.blur()
+                      value={pricingInputs[item.id] || ''}
+                      onChange={e => {
+                        if (listStatus === 'completed') return
+                        setPricingInputs(prev => ({ ...prev, [item.id]: e.target.value }))
                       }}
                       readOnly={listStatus === 'completed'}
                     />
@@ -981,6 +1013,19 @@ function ListPage() {
             disabled={savingChanges}
           >
             {savingChanges ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      )}
+
+      {/* Save changes bar — Pricing tab — appears when any price is typed */}
+      {activeTab === 'pricing' && Object.values(pricingInputs).some(v => v && parseFloat(v) > 0) && listStatus !== 'completed' && (
+        <div style={styles.saveBar}>
+          <button
+            style={savingPricing ? { ...styles.saveBtn, opacity: 0.6 } : styles.saveBtn}
+            onClick={savePricingItems}
+            disabled={savingPricing}
+          >
+            {savingPricing ? 'Saving…' : 'Save changes'}
           </button>
         </div>
       )}
