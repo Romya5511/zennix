@@ -2,23 +2,11 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
 function getFirstName(fullName) {
   if (!fullName) return 'Someone'
   return fullName.split(' ')[0]
 }
 
-function getMonthLabel(dateStr) {
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })
-}
-
-function getDayLabel(dateStr) {
-  return new Date(dateStr).toLocaleDateString('en-IN', { weekday: 'short' })
-}
-
-// ── SVG Bar Chart ─────────────────────────────────────────────────────────────
 function BarChart({ bars, onBarClick, highlightIndex }) {
   const W = 320
   const H = 140
@@ -72,7 +60,6 @@ function BarChart({ bars, onBarClick, highlightIndex }) {
   )
 }
 
-// ── SVG Donut Chart ───────────────────────────────────────────────────────────
 function DonutChart({ segments }) {
   const total = segments.reduce((s, seg) => s + seg.value, 0)
   if (total === 0) return (
@@ -110,54 +97,36 @@ function DonutChart({ segments }) {
   )
 }
 
-// ── Month Detail Modal ────────────────────────────────────────────────────────
 function MonthDetailModal({ monthLabel, entries, profiles, onClose }) {
   const groceryEntries = entries.filter(e => e.source_type === 'grocery_list')
   const fixedEntries = entries.filter(e => e.source_type === 'fixed_cost')
-
   const groceryTotal = groceryEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+  const fixedTotal = fixedEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+  const grandTotal = groceryTotal + fixedTotal
 
-  // Group fixed costs by item_name
+  // Group fixed costs by name
   const fixedByName = {}
   fixedEntries.forEach(e => {
-    const key = e.item_name
-    fixedByName[key] = (fixedByName[key] || 0) + (parseFloat(e.amount) || 0)
+    fixedByName[e.item_name] = (fixedByName[e.item_name] || 0) + (parseFloat(e.amount) || 0)
   })
 
-  const grandTotal = entries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+  // Group grocery by item name and sum
+  const groceryByName = {}
+  groceryEntries.forEach(e => {
+    groceryByName[e.item_name] = (groceryByName[e.item_name] || 0) + (parseFloat(e.amount) || 0)
+  })
+  const grocerySorted = Object.entries(groceryByName).sort((a, b) => b[1] - a[1])
 
   return (
     <div style={modalStyles.overlay} onClick={onClose}>
       <div style={modalStyles.sheet} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.handle} />
         <div style={modalStyles.sheetHeader}>
-          <p style={modalStyles.sheetTitle}>{monthLabel} — Breakdown</p>
+          <p style={modalStyles.sheetTitle}>{monthLabel}</p>
           <button style={modalStyles.closeBtn} onClick={onClose}>✕</button>
         </div>
 
         <p style={modalStyles.grandTotal}>₹{grandTotal.toFixed(2)} total</p>
-
-        {/* Grocery section */}
-        <div style={modalStyles.section}>
-          <div style={modalStyles.sectionHeader}>
-            <span style={modalStyles.sectionIcon}>🛒</span>
-            <span style={modalStyles.sectionName}>Grocery</span>
-            <span style={modalStyles.sectionTotal}>₹{groceryTotal.toFixed(2)}</span>
-          </div>
-          {groceryEntries.length === 0 ? (
-            <p style={modalStyles.emptyNote}>No grocery spend this month</p>
-          ) : (
-            groceryEntries.slice(0, 8).map(e => (
-              <div key={e.id} style={modalStyles.itemRow}>
-                <span style={modalStyles.itemName}>{e.item_name}</span>
-                <span style={modalStyles.itemAmount}>₹{parseFloat(e.amount || 0).toFixed(2)}</span>
-              </div>
-            ))
-          )}
-          {groceryEntries.length > 8 && (
-            <p style={modalStyles.moreNote}>+{groceryEntries.length - 8} more items</p>
-          )}
-        </div>
 
         {/* Fixed costs section */}
         {Object.keys(fixedByName).length > 0 && (
@@ -165,9 +134,7 @@ function MonthDetailModal({ monthLabel, entries, profiles, onClose }) {
             <div style={modalStyles.sectionHeader}>
               <span style={modalStyles.sectionIcon}>📅</span>
               <span style={modalStyles.sectionName}>Fixed Costs</span>
-              <span style={modalStyles.sectionTotal}>
-                ₹{fixedEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0).toFixed(2)}
-              </span>
+              <span style={modalStyles.sectionTotal}>₹{fixedTotal.toFixed(2)}</span>
             </div>
             {Object.entries(fixedByName).map(([name, total]) => (
               <div key={name} style={modalStyles.itemRow}>
@@ -177,19 +144,38 @@ function MonthDetailModal({ monthLabel, entries, profiles, onClose }) {
             ))}
           </div>
         )}
+
+        {/* Grocery section — ALL items, grouped by name */}
+        <div style={modalStyles.section}>
+          <div style={modalStyles.sectionHeader}>
+            <span style={modalStyles.sectionIcon}>🛒</span>
+            <span style={modalStyles.sectionName}>Grocery</span>
+            <span style={modalStyles.sectionTotal}>₹{groceryTotal.toFixed(2)}</span>
+          </div>
+          {grocerySorted.length === 0 ? (
+            <p style={modalStyles.emptyNote}>No grocery spend this month</p>
+          ) : (
+            grocerySorted.map(([name, total]) => (
+              <div key={name} style={modalStyles.itemRow}>
+                <span style={modalStyles.itemName}>{name}</span>
+                <span style={modalStyles.itemAmount}>₹{total.toFixed(2)}</span>
+              </div>
+            ))
+          )}
+        </div>
+
       </div>
     </div>
   )
 }
 
-// ── Main SpendPage ────────────────────────────────────────────────────────────
 function SpendPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
-  const [view, setView] = useState('week') // 'week' | 'month'
+  const [view, setView] = useState('week')
   const [entries, setEntries] = useState([])
   const [profiles, setProfiles] = useState({})
-  const [selectedMonth, setSelectedMonth] = useState(null) // { label, entries }
+  const [selectedMonth, setSelectedMonth] = useState(null)
   const [highlightBar, setHighlightBar] = useState(null)
 
   useEffect(() => { loadSpend() }, [])
@@ -206,7 +192,6 @@ function SpendPage() {
     if (!membership) { navigate('/'); return }
     const hid = membership.household_id
 
-    // Load profiles
     const { data: members } = await supabase
       .from('household_members')
       .select('user_id')
@@ -222,7 +207,6 @@ function SpendPage() {
       }
     }
 
-    // Load last 12 months of data
     const since = new Date()
     since.setMonth(since.getMonth() - 11)
     since.setDate(1)
@@ -239,7 +223,6 @@ function SpendPage() {
     setLoading(false)
   }
 
-  // ── Week data ──────────────────────────────────────────────────────────────
   function getWeekData() {
     const now = new Date()
     const day = now.getDay()
@@ -263,7 +246,6 @@ function SpendPage() {
       return {
         label: d.toLocaleDateString('en-IN', { weekday: 'short' }).slice(0, 3),
         value: total,
-        date: d,
       }
     })
 
@@ -272,7 +254,6 @@ function SpendPage() {
       .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
     const fixed = weekEntries.filter(e => e.source_type === 'fixed_cost')
       .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
-
     const perPerson = {}
     weekEntries.forEach(e => {
       if (!e.bought_by) return
@@ -282,7 +263,6 @@ function SpendPage() {
     return { bars, grocery, fixed, perPerson, total: grocery + fixed }
   }
 
-  // ── Month data ─────────────────────────────────────────────────────────────
   function getMonthData() {
     const now = new Date()
     const months = []
@@ -302,12 +282,10 @@ function SpendPage() {
         label: d.toLocaleDateString('en-IN', { month: 'short' }).slice(0, 3),
         value: total,
         monthEntries,
-        monthStart: d,
         fullLabel: d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
       }
     })
 
-    // Current month stats for donut + per person
     const curMonth = new Date(now.getFullYear(), now.getMonth(), 1)
     const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
     const curEntries = entries.filter(e => {
@@ -331,6 +309,7 @@ function SpendPage() {
     return (
       <div style={styles.page}>
         <div style={styles.header}>
+          {/* ── FIXED: always navigate to / instead of browser back ── */}
           <button style={styles.backBtn} onClick={() => navigate('/')}>← Back</button>
           <h1 style={styles.title}>Spend Analytics</h1>
         </div>
@@ -353,8 +332,8 @@ function SpendPage() {
   return (
     <div style={styles.page}>
 
-      {/* Header */}
       <div style={styles.header}>
+        {/* ── FIXED: always navigate to / instead of browser back ── */}
         <button style={styles.backBtn} onClick={() => navigate('/')}>← Back</button>
         <h1 style={styles.title}>Spend Analytics</h1>
       </div>
@@ -385,7 +364,7 @@ function SpendPage() {
           <p style={styles.summaryTotal}>₹{data.total.toFixed(2)}</p>
         </div>
 
-        {/* Bar chart card */}
+        {/* Bar chart */}
         <div style={styles.card}>
           <p style={styles.cardTitle}>
             {view === 'week' ? 'Daily Spend (This Week)' : 'Monthly Spend (Last 12 Months)'}
@@ -406,7 +385,7 @@ function SpendPage() {
           />
         </div>
 
-        {/* Donut + legend card */}
+        {/* Donut chart */}
         <div style={styles.card}>
           <p style={styles.cardTitle}>Grocery vs Fixed</p>
           <div style={styles.donutRow}>
@@ -430,7 +409,7 @@ function SpendPage() {
           </div>
         </div>
 
-        {/* Per-person card */}
+        {/* Per-person */}
         {Object.keys(data.perPerson).length > 0 && (
           <div style={styles.card}>
             <p style={styles.cardTitle}>By Person</p>
@@ -438,12 +417,7 @@ function SpendPage() {
               <div key={uid} style={styles.personRow}>
                 <span style={styles.personName}>{getFirstName(profiles[uid])}</span>
                 <div style={styles.personBarWrap}>
-                  <div
-                    style={{
-                      ...styles.personBar,
-                      width: `${Math.round((total / maxPerson) * 100)}%`,
-                    }}
-                  />
+                  <div style={{ ...styles.personBar, width: `${Math.round((total / maxPerson) * 100)}%` }} />
                 </div>
                 <span style={styles.personAmt}>₹{total.toFixed(0)}</span>
               </div>
@@ -451,7 +425,6 @@ function SpendPage() {
           </div>
         )}
 
-        {/* All entries list */}
         {entries.length === 0 && (
           <div style={styles.emptyCard}>
             <p style={styles.emptyIcon}>🧾</p>
@@ -462,7 +435,6 @@ function SpendPage() {
 
       </div>
 
-      {/* Month detail modal */}
       {selectedMonth && (
         <MonthDetailModal
           monthLabel={selectedMonth.label}
@@ -533,7 +505,6 @@ const modalStyles = {
   itemName: { fontSize: '0.875rem', color: '#444' },
   itemAmount: { fontSize: '0.875rem', fontWeight: '600', color: '#111' },
   emptyNote: { fontSize: '0.8rem', color: '#aaa', margin: 0 },
-  moreNote: { fontSize: '0.75rem', color: '#9ca3af', margin: '0.5rem 0 0', textAlign: 'right' },
 }
 
 export default SpendPage
