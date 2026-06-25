@@ -11,11 +11,14 @@ function Home() {
   const [profile, setProfile] = useState(null)
   const [householdId, setHouseholdId] = useState(null)
   const [activeList, setActiveList] = useState(null)
-  const [completedList, setCompletedList] = useState(null) // most recently completed list
+  const [completedList, setCompletedList] = useState(null)
   const [itemCount, setItemCount] = useState(0)
   const [creatorName, setCreatorName] = useState('')
+  const [unseenList, setUnseenList] = useState(null)       // ── NEW
+  const [showUnseenModal, setShowUnseenModal] = useState(false) // ── NEW
   const channelRef = useRef(null)
   const householdIdRef = useRef(null)
+  const currentUserIdRef = useRef(null)                    // ── NEW: ref so Realtime callback can read it
 
   useEffect(() => {
     loadHome()
@@ -37,8 +40,8 @@ function Home() {
       .maybeSingle()
     setProfile(profileData)
     setCurrentUserId(user.id)
+    currentUserIdRef.current = user.id  // ── NEW: store in ref for Realtime callbacks
 
-    // Show push permission modal if not already subscribed and not seen this session
     if (!sessionStorage.getItem('push_prompt_seen')) {
       const { data: profileFull } = await supabase
         .from('profiles')
@@ -62,16 +65,16 @@ function Home() {
     setHouseholdId(hid)
     householdIdRef.current = hid
 
-    await checkLists(hid)
+    await checkLists(hid, user.id)  // ── UPDATED: pass uid directly
     subscribeToHousehold(hid)
     setLoading(false)
   }
 
-  async function checkLists(hid) {
-    // Check for active list first
+  // ── UPDATED: accepts uid as second argument to avoid timing issues with state ──
+  async function checkLists(hid, uid) {
     const { data: activeLists } = await supabase
       .from('grocery_lists')
-      .select('id, created_at, created_by, status')
+      .select('id, created_at, created_by, status, notification_seen_by')  // ── NEW field
       .eq('household_id', hid)
       .eq('status', 'active')
       .order('created_at', { ascending: false })
@@ -94,9 +97,20 @@ function Home() {
             .eq('id', list.created_by)
             .maybeSingle()
           setCreatorName(creator?.full_name || 'Someone')
+
+          // ── NEW: check if current user has seen this list ──
+          const seenBy = list.notification_seen_by || []
+          if (uid && !seenBy.includes(uid)) {
+            setUnseenList({
+              ...list,
+              creatorName: creator?.full_name || 'Someone',
+              itemCount: count,
+            })
+            setShowUnseenModal(true)
+          }
+
           return
         } else {
-          // Empty active list — delete it so it doesn't block the home screen
           await supabase.from('grocery_lists').delete().eq('id', list.id)
         }
       }
@@ -113,7 +127,6 @@ function Home() {
       .maybeSingle()
 
     if (completed) {
-      // Count items in completed list
       const { count: doneCount } = await supabase
         .from('list_items')
         .select('id', { count: 'exact', head: true })
@@ -140,12 +153,17 @@ function Home() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'grocery_lists', filter: `household_id=eq.${hid}` },
-        async () => { await checkLists(householdIdRef.current) }
+        async () => {
+          // ── UPDATED: use ref so the callback always has the current userId ──
+          await checkLists(householdIdRef.current, currentUserIdRef.current)
+        }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'list_items' },
-        async () => { await checkLists(householdIdRef.current) }
+        async () => {
+          await checkLists(householdIdRef.current, currentUserIdRef.current)
+        }
       )
       .subscribe()
 
@@ -190,7 +208,6 @@ function Home() {
         </div>
 
         {activeList ? (
-          // Active list card
           <div style={styles.listCard}>
             <div style={styles.listCardTop}>
               <span style={styles.activeBadge}>● Active list</span>
@@ -211,7 +228,6 @@ function Home() {
           </div>
 
         ) : completedList ? (
-          // Completion card — shows after list is fully done
           <div style={styles.completionCard}>
             <div style={styles.completionTop}>
               <span style={styles.completionEmoji}>🎉</span>
@@ -240,7 +256,6 @@ function Home() {
           </div>
 
         ) : (
-          // Empty state — create new list
           <div style={styles.emptyCard}>
             <p style={styles.emptyText}>No active grocery list</p>
             <p style={styles.emptySubText}>
@@ -268,12 +283,45 @@ function Home() {
         </div>
 
       </div>
+
+      {/* Push permission modal */}
       {showPushModal && (
         <PushPermissionModal
           userId={currentUserId}
           onDone={() => setShowPushModal(false)}
         />
       )}
+
+      {/* ── NEW: Unseen list modal ── */}
+      {showUnseenModal && unseenList && (
+        <div style={modalStyles.overlay}>
+          <div style={modalStyles.modal}>
+            <div style={modalStyles.iconWrap}>🛒</div>
+            <h2 style={modalStyles.title}>New grocery list!</h2>
+            <p style={modalStyles.body}>
+              <strong>{getFirstName(unseenList.creatorName)}</strong> started a grocery list
+              with <strong>{unseenList.itemCount} {unseenList.itemCount === 1 ? 'item' : 'items'}</strong>.
+              You haven't seen it yet.
+            </p>
+            <button
+              style={modalStyles.viewBtn}
+              onClick={() => {
+                setShowUnseenModal(false)
+                navigate(`/list/${unseenList.id}`)
+              }}
+            >
+              View list →
+            </button>
+            <button
+              style={modalStyles.laterBtn}
+              onClick={() => setShowUnseenModal(false)}
+            >
+              I'll check later
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
@@ -286,7 +334,6 @@ const styles = {
   greetingText: { fontSize: '1.5rem', fontWeight: '700', color: '#111', margin: '0 0 0.25rem' },
   subText: { fontSize: '0.9rem', color: '#888', margin: 0 },
 
-  // Active list card
   listCard: { background: '#fff', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', display: 'flex', flexDirection: 'column', gap: '1rem' },
   listCardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   activeBadge: { fontSize: '0.75rem', fontWeight: '700', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em' },
@@ -296,7 +343,6 @@ const styles = {
   listCreator: { fontSize: '0.85rem', color: '#888', margin: 0 },
   openListBtn: { width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: '700', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '12px', cursor: 'pointer' },
 
-  // Completion card
   completionCard: { background: '#fff', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', display: 'flex', flexDirection: 'column', gap: '1rem', border: '1px solid #bbf7d0' },
   completionTop: { display: 'flex', alignItems: 'center', gap: '0.5rem' },
   completionEmoji: { fontSize: '1.25rem' },
@@ -306,7 +352,6 @@ const styles = {
   completionMeta: { fontSize: '0.875rem', color: '#888', margin: 0 },
   startNewBtn: { width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: '700', backgroundColor: '#fff', color: '#4f46e5', border: '2px solid #4f46e5', borderRadius: '12px', cursor: 'pointer' },
 
-  // Empty state
   emptyCard: { background: '#fff', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' },
   emptyText: { fontSize: '1rem', fontWeight: '600', color: '#111', margin: 0 },
   emptySubText: { fontSize: '0.875rem', color: '#888', margin: 0, lineHeight: '1.5' },
@@ -318,6 +363,73 @@ const styles = {
   placeholderIcon: { fontSize: '1.5rem' },
   placeholderLabel: { fontSize: '0.85rem', fontWeight: '600', color: '#444' },
   comingSoon: { fontSize: '0.7rem', color: '#aaa', fontWeight: '500' },
+}
+
+// ── NEW: modal styles ──
+const modalStyles = {
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.55)',
+    zIndex: 200,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '1.5rem',
+  },
+  modal: {
+    background: '#fff',
+    borderRadius: '20px',
+    padding: '2rem 1.5rem',
+    maxWidth: '360px',
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '0.75rem',
+    boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
+  },
+  iconWrap: {
+    fontSize: '2.5rem',
+    marginBottom: '0.25rem',
+  },
+  title: {
+    fontSize: '1.25rem',
+    fontWeight: '800',
+    color: '#111',
+    margin: 0,
+    textAlign: 'center',
+  },
+  body: {
+    fontSize: '0.95rem',
+    color: '#444',
+    textAlign: 'center',
+    lineHeight: '1.6',
+    margin: 0,
+  },
+  viewBtn: {
+    width: '100%',
+    padding: '0.9rem',
+    fontSize: '1rem',
+    fontWeight: '700',
+    background: '#4f46e5',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '12px',
+    cursor: 'pointer',
+    marginTop: '0.5rem',
+  },
+  laterBtn: {
+    width: '100%',
+    padding: '0.75rem',
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    background: 'none',
+    color: '#888',
+    border: '1px solid #e5e7eb',
+    borderRadius: '12px',
+    cursor: 'pointer',
+  },
 }
 
 export default Home

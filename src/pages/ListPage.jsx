@@ -9,8 +9,6 @@ const SEED_ITEMS = [
   'Sabun', 'Shampoo', 'Chai Patti', 'Biscuit', 'Bread'
 ]
 
-// Returns "2 min ago", "1 hr ago", "just now" etc.
-// Returns first name only e.g. "Romya ranjan Samal" → "Romya"
 function firstName(fullName) {
   if (!fullName) return ''
   return fullName.split(' ')[0]
@@ -25,7 +23,6 @@ function timeAgo(isoString) {
   return `${Math.floor(diff / 86400)} day ago`
 }
 
-// Swipe-to-delete wrapper — works on both desktop and mobile/touch
 function SwipeToDelete({ children, onDelete, isOpen, onOpen, onClose }) {
   const startXRef = useRef(null)
   const startYRef = useRef(null)
@@ -42,7 +39,6 @@ function SwipeToDelete({ children, onDelete, isOpen, onOpen, onClose }) {
     if (startXRef.current === null) return
     const diffX = startXRef.current - e.touches[0].clientX
     const diffY = Math.abs(startYRef.current - e.touches[0].clientY)
-    // Only treat as swipe if horizontal movement dominates
     if (Math.abs(diffX) > diffY && Math.abs(diffX) > 10) {
       isDraggingRef.current = true
       e.preventDefault()
@@ -65,7 +61,6 @@ function SwipeToDelete({ children, onDelete, isOpen, onOpen, onClose }) {
     isDraggingRef.current = false
   }
 
-  // Desktop mouse support
   function onMouseDown(e) {
     startXRef.current = e.clientX
     isDraggingRef.current = false
@@ -83,7 +78,6 @@ function SwipeToDelete({ children, onDelete, isOpen, onOpen, onClose }) {
 
   return (
     <div style={swipeStyles.wrapper}>
-      {/* Delete button — sits at right edge, always visible when row is slid */}
       <div style={swipeStyles.deleteSlot}>
         <button
           style={swipeStyles.deleteBtn}
@@ -93,7 +87,6 @@ function SwipeToDelete({ children, onDelete, isOpen, onOpen, onClose }) {
           🗑 Delete
         </button>
       </div>
-      {/* Row that slides */}
       <div
         style={{
           ...swipeStyles.slider,
@@ -115,7 +108,6 @@ const swipeStyles = {
   wrapper: {
     position: 'relative',
     marginBottom: '0.5rem',
-    // No overflow:hidden — lets the row slide visually over the delete button
   },
   deleteSlot: {
     position: 'absolute',
@@ -157,19 +149,19 @@ function ListPage() {
   const [listId, setListId] = useState(isNew ? null : id)
   const [libraryItems, setLibraryItems] = useState([])
   const [listItems, setListItems] = useState([])
-  const [profiles, setProfiles] = useState({}) // { [userId]: full_name }
+  const [profiles, setProfiles] = useState({})
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'to_buy')
   const [showLibrary, setShowLibrary] = useState(false)
   const [adding, setAdding] = useState(false)
   const [savingChanges, setSavingChanges] = useState(false)
-  const [listStatus, setListStatus] = useState('active') // 'active' | 'completed'
-  const [doneEdits, setDoneEdits] = useState({})   // { [itemId]: { qty, price } }
+  const [listStatus, setListStatus] = useState('active')
+  const [doneEdits, setDoneEdits] = useState({})
   const [savingDoneEdits, setSavingDoneEdits] = useState(false)
-  const [dupWarning, setDupWarning] = useState('') // item name that's already in list
-  const [pricingInputs, setPricingInputs] = useState({}) // { [itemId]: priceString } local only
+  const [dupWarning, setDupWarning] = useState('')
+  const [pricingInputs, setPricingInputs] = useState({})
   const [savingPricing, setSavingPricing] = useState(false)
-  const [swipedItemId, setSwipedItemId] = useState(null) // id of item currently swiped open
+  const [swipedItemId, setSwipedItemId] = useState(null)
 
   const listIdRef = useRef(isNew ? null : id)
   const householdIdRef = useRef(null)
@@ -190,6 +182,7 @@ function ListPage() {
     if (listId) subscribeToListItems(listId)
   }, [listId])
 
+  // ── UPDATED: now also listens for grocery_lists status changes ──
   function subscribeToListItems(lid) {
     if (channelRef.current) supabase.removeChannel(channelRef.current)
     const channel = supabase
@@ -204,6 +197,17 @@ function ListPage() {
             .eq('list_id', lid)
             .order('display_order', { ascending: true })
           setListItems(data || [])
+        }
+      )
+      .on(
+        // ── NEW: if other member completes the list while you have it open,
+        //    your listStatus updates in real time without needing a refresh ──
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'grocery_lists', filter: `id=eq.${lid}` },
+        (payload) => {
+          if (payload.new && payload.new.status) {
+            setListStatus(payload.new.status)
+          }
         }
       )
       .subscribe()
@@ -224,7 +228,6 @@ function ListPage() {
     if (!membership) { navigate('/'); return }
     householdIdRef.current = membership.household_id
 
-    // Load all profiles for this household so we can show display names
     const { data: members } = await supabase
       .from('household_members')
       .select('user_id')
@@ -252,13 +255,25 @@ function ListPage() {
         .order('display_order', { ascending: true })
       setListItems(items || [])
 
-      // Load list status so we know if it's completed (read-only)
+      // ── UPDATED: also fetch notification_seen_by so we can mark this user as seen ──
       const { data: listRow } = await supabase
         .from('grocery_lists')
-        .select('status')
+        .select('status, notification_seen_by')
         .eq('id', id)
         .maybeSingle()
-      if (listRow) setListStatus(listRow.status)
+
+      if (listRow) {
+        setListStatus(listRow.status)
+
+        // ── NEW: mark this list as seen by current user ──
+        const seenBy = listRow.notification_seen_by || []
+        if (!seenBy.includes(user.id)) {
+          await supabase
+            .from('grocery_lists')
+            .update({ notification_seen_by: [...seenBy, user.id] })
+            .eq('id', id)
+        }
+      }
     }
 
     await loadLibrary(membership.household_id)
@@ -300,7 +315,6 @@ function ListPage() {
       .maybeSingle()
 
     if (existing) {
-      // Check if this active list has any done items — if so it's a stale list
       const { count: doneCount } = await supabase
         .from('list_items')
         .select('id', { count: 'exact', head: true })
@@ -313,7 +327,6 @@ function ListPage() {
         .eq('list_id', existing.id)
 
       if (totalCount && totalCount > 0 && (!doneCount || doneCount < totalCount)) {
-        // Has active items — use it
         listIdRef.current = existing.id
         setListId(existing.id)
         window.history.replaceState(null, '', `/list/${existing.id}`)
@@ -325,7 +338,6 @@ function ListPage() {
         setListItems(items || [])
         return existing.id
       } else {
-        // Empty or fully-done list stuck as active — abandon it and create fresh
         await supabase
           .from('grocery_lists')
           .update({ status: 'abandoned' })
@@ -333,9 +345,15 @@ function ListPage() {
       }
     }
 
+    // ── UPDATED: creator is auto-marked as seen when list is created ──
     const { data: newList, error } = await supabase
       .from('grocery_lists')
-      .insert({ household_id: hid, created_by: uid, status: 'active' })
+      .insert({
+        household_id: hid,
+        created_by: uid,
+        status: 'active',
+        notification_seen_by: [uid],  // creator has already "seen" it
+      })
       .select()
       .single()
 
@@ -354,12 +372,10 @@ function ListPage() {
     const currentListId = await getOrCreateListId()
     if (!currentListId) { setAdding(false); return }
 
-    // Check local state first (fast)
     const alreadyLocal = listItems.find(
       i => i.item_name.toLowerCase() === libraryItem.item_name.toLowerCase()
         && i.tab_status === 'to_buy'
     )
-    // Also check Supabase directly (catches cross-member race condition)
     const { data: alreadyInDb } = await supabase
       .from('list_items')
       .select('id')
@@ -405,7 +421,6 @@ function ListPage() {
         )
       )
 
-      // Trigger 1: notify partner only when FIRST item is added to the list
       const currentItems = listItems.filter(i => i.tab_status === 'to_buy')
       if (currentItems.length === 0) {
         const { data: profileData } = await supabase
@@ -519,7 +534,6 @@ function ListPage() {
       })
       .in('id', tickedIds)
 
-    // Trigger 2: notify partner after Save changes
     const remaining = toBuyItems.filter(i => !tickedIds.includes(i.id)).length
     const { data: profileData } = await supabase
       .from('profiles').select('full_name').eq('id', uid).maybeSingle()
@@ -535,7 +549,6 @@ function ListPage() {
     setSavingChanges(false)
   }
 
-  // Called when user types a price and presses Enter or taps away
   async function enterPrice(item, priceValue) {
     const price = parseFloat(priceValue)
     if (!priceValue || isNaN(price) || price <= 0) return
@@ -545,7 +558,6 @@ function ListPage() {
     const currentListId = listIdRef.current
     const now = new Date().toISOString()
 
-    // Optimistic update — remove from pricing tab immediately
     setListItems(prev =>
       prev.map(i =>
         i.id === item.id
@@ -554,7 +566,6 @@ function ListPage() {
       )
     )
 
-    // Update list_item in Supabase
     await supabase
       .from('list_items')
       .update({
@@ -565,7 +576,6 @@ function ListPage() {
       })
       .eq('id', item.id)
 
-    // Insert into household_bucket — store list_item_id for exact matching on future edits
     await supabase
       .from('household_bucket')
       .insert({
@@ -580,7 +590,6 @@ function ListPage() {
         bought_at: now,
       })
 
-    // Auto-completion check — skip if user has unsaved Done tab edits
     if (Object.keys(doneEdits).length > 0) return
 
     const { count: totalCount } = await supabase
@@ -595,7 +604,6 @@ function ListPage() {
       .eq('tab_status', 'done')
 
     if (totalCount > 0 && totalCount === doneCount) {
-      // All items done — calculate total and mark list completed
       const { data: allItems } = await supabase
         .from('list_items')
         .select('price_entered')
@@ -616,7 +624,6 @@ function ListPage() {
 
       setListStatus('completed')
 
-      // Trigger 4: notify partner that list is complete
       const { data: completionProfile } = await supabase
         .from('profiles').select('full_name').eq('id', uid).maybeSingle()
       const completionName = completionProfile?.full_name?.split(' ')[0] || 'Someone'
@@ -630,7 +637,6 @@ function ListPage() {
     }
   }
 
-  // Save edits made on Done tab rows
   async function saveDoneEdits() {
     if (savingDoneEdits) return
     setSavingDoneEdits(true)
@@ -643,19 +649,16 @@ function ListPage() {
       const parsedPrice = parseFloat(price)
       if (isNaN(parsedPrice) || parsedPrice <= 0) continue
 
-      // Update list_items
       await supabase
         .from('list_items')
         .update({ quantity: qty, price_entered: parsedPrice })
         .eq('id', itemId)
 
-      // Update household_bucket — match by list_item_id
       await supabase
         .from('household_bucket')
         .update({ quantity: qty, amount: parsedPrice })
         .eq('list_item_id', itemId)
 
-      // Update local state
       setListItems(prev =>
         prev.map(i =>
           i.id === itemId
@@ -669,7 +672,6 @@ function ListPage() {
     setSavingDoneEdits(false)
   }
 
-  // Save all locally entered prices at once
   async function savePricingItems() {
     if (savingPricing) return
     const entries = Object.entries(pricingInputs).filter(([, v]) => v && parseFloat(v) > 0)
@@ -682,7 +684,6 @@ function ListPage() {
       await enterPrice(item, priceValue)
     }
 
-    // One notification after all prices saved
     const uid = userIdRef.current
     const hid = householdIdRef.current
     const currentListId = listIdRef.current
@@ -738,7 +739,7 @@ function ListPage() {
         <h1 style={styles.title}>Grocery List</h1>
       </div>
 
-      {/* Completed banner — shown when list is done */}
+      {/* Completed banner */}
       {listStatus === 'completed' && (
         <div style={styles.completedBanner}>
           <span style={styles.completedBannerIcon}>🎉</span>
@@ -765,10 +766,9 @@ function ListPage() {
       {/* Tab content */}
       <div style={styles.content}>
 
-        {/* ── TO BUY TAB ── */}
+        {/* TO BUY TAB */}
         {activeTab === 'to_buy' && (
           <div>
-            {/* Duplicate warning banner */}
             {dupWarning !== '' && (
               <div style={styles.dupBanner}>
                 <span style={styles.dupBannerText}>
@@ -847,7 +847,7 @@ function ListPage() {
           </div>
         )}
 
-        {/* ── PRICING TAB ── */}
+        {/* PRICING TAB */}
         {activeTab === 'pricing' && (
           <div>
             {pricingItems.length === 0 ? (
@@ -857,7 +857,6 @@ function ListPage() {
             ) : (
               pricingItems.map(item => (
                 <div key={item.id} style={styles.pricingRow}>
-                  {/* Left: item name + meta */}
                   <div style={styles.pricingLeft}>
                     <span style={styles.itemName}>{item.item_name}</span>
                     <span style={styles.pricingMeta}>
@@ -868,16 +867,12 @@ function ListPage() {
                       {item.ticked_at ? ` · ${timeAgo(item.ticked_at)}` : ''}
                     </span>
                   </div>
-
-                  {/* Middle: editable qty */}
                   <input
                     style={styles.qtyInput}
                     value={item.quantity || ''}
                     onChange={e => updateQty(item.id, e.target.value)}
                     placeholder="Qty"
                   />
-
-                  {/* Right: price input — stores locally until Save is tapped */}
                   <div style={styles.priceWrapper}>
                     <span style={styles.rupeeSymbol}>₹</span>
                     <input
@@ -899,7 +894,7 @@ function ListPage() {
           </div>
         )}
 
-        {/* ── DONE TAB ── */}
+        {/* DONE TAB */}
         {activeTab === 'done' && (
           <div>
             {doneItems.length === 0 ? (
@@ -908,7 +903,6 @@ function ListPage() {
               </p>
             ) : (
               <>
-                {/* Running total — uses edited price if in edit state */}
                 <div style={styles.totalBar}>
                   <span style={styles.totalLabel}>Total so far</span>
                   <span style={styles.totalAmount}>
@@ -920,7 +914,6 @@ function ListPage() {
                   </span>
                 </div>
 
-                {/* Done item rows — tap row to edit */}
                 {doneItems.map(item => {
                   const isEditing = !!doneEdits[item.id]
                   const editState = doneEdits[item.id] || {
@@ -962,7 +955,6 @@ function ListPage() {
                         )}
                       </div>
 
-                      {/* Qty — editable when in edit state */}
                       {isEditing ? (
                         <input
                           style={styles.qtyInput}
@@ -976,7 +968,6 @@ function ListPage() {
                         />
                       ) : null}
 
-                      {/* Price — editable when in edit state, read-only otherwise */}
                       {isEditing ? (
                         <div style={styles.priceWrapper} onClick={e => e.stopPropagation()}>
                           <span style={styles.rupeeSymbol}>₹</span>
@@ -1007,7 +998,7 @@ function ListPage() {
 
       </div>
 
-      {/* Save changes bar — hidden when list is completed */}
+      {/* Save bar — To Buy tab */}
       {activeTab === 'to_buy' && anyTicked && listStatus !== 'completed' && (
         <div style={styles.saveBar}>
           <button
@@ -1020,7 +1011,7 @@ function ListPage() {
         </div>
       )}
 
-      {/* Save changes bar — Pricing tab — appears when any price is typed */}
+      {/* Save bar — Pricing tab */}
       {activeTab === 'pricing' && Object.values(pricingInputs).some(v => v && parseFloat(v) > 0) && listStatus !== 'completed' && (
         <div style={styles.saveBar}>
           <button
@@ -1033,7 +1024,7 @@ function ListPage() {
         </div>
       )}
 
-      {/* Save changes bar — Done tab edits — hidden when completed */}
+      {/* Save bar — Done tab */}
       {activeTab === 'done' && Object.keys(doneEdits).length > 0 && (
         <div style={styles.saveBar}>
           <button
@@ -1046,7 +1037,7 @@ function ListPage() {
         </div>
       )}
 
-      {/* Floating Add Items button — hidden when list is completed */}
+      {/* Floating Add Items button */}
       {activeTab === 'to_buy' && listStatus !== 'completed' && (
         <button
           style={anyTicked ? { ...styles.fab, bottom: '6rem' } : styles.fab}
@@ -1178,8 +1169,6 @@ const styles = {
     padding: '3rem 1rem',
     margin: 0,
   },
-
-  // To Buy row
   itemRow: {
     display: 'flex',
     alignItems: 'center',
@@ -1235,8 +1224,6 @@ const styles = {
     borderColor: '#16a34a',
     color: '#fff',
   },
-
-  // Pricing row
   pricingRow: {
     display: 'flex',
     alignItems: 'center',
@@ -1280,8 +1267,6 @@ const styles = {
     outline: 'none',
     textAlign: 'right',
   },
-
-  // Done tab
   totalBar: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -1338,8 +1323,6 @@ const styles = {
     color: '#16a34a',
     flexShrink: 0,
   },
-
-  // Completed list banner
   completedBanner: {
     display: 'flex',
     alignItems: 'center',
@@ -1356,8 +1339,6 @@ const styles = {
     fontWeight: '600',
     color: '#16a34a',
   },
-
-  // Duplicate warning banner
   dupBanner: {
     display: 'flex',
     alignItems: 'center',
@@ -1383,8 +1364,6 @@ const styles = {
     padding: '0 0.25rem',
     marginLeft: '0.5rem',
   },
-
-  // Save bar
   saveBar: {
     position: 'fixed',
     bottom: 0,
@@ -1407,7 +1386,6 @@ const styles = {
     borderRadius: '12px',
     cursor: 'pointer',
   },
-
   fab: {
     position: 'fixed',
     bottom: '2rem',
