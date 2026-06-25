@@ -5,9 +5,9 @@ import Login from './pages/Login'
 import Home from './pages/Home'
 import Setup from './pages/Setup'
 import Join from './pages/Join'
-import Dashboard from './pages/Dashboard'
 import ListPage from './pages/ListPage'
 import FixedCosts from './pages/FixedCosts'
+import SpendPage from './pages/SpendPage'
 import IOSInstallBanner from './components/IOSInstallBanner'
 
 function App() {
@@ -52,12 +52,12 @@ function App() {
           <Route path="*" element={<Login />} />
         ) : (
           <>
-            <Route path="/"             element={<Home />} />
-            <Route path="/setup"        element={<Setup />} />
-            <Route path="/dashboard"    element={<Dashboard />} />
-            <Route path="/list/:id"     element={<ListPage />} />
-            <Route path="/fixed-costs"  element={<FixedCosts />} />
-            <Route path="*"             element={<Navigate to="/" />} />
+            <Route path="/"            element={<Home />} />
+            <Route path="/setup"       element={<Setup />} />
+            <Route path="/list/:id"    element={<ListPage />} />
+            <Route path="/fixed-costs" element={<FixedCosts />} />
+            <Route path="/spend"       element={<SpendPage />} />
+            <Route path="*"            element={<Navigate to="/" />} />
           </>
         )}
       </Routes>
