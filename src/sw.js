@@ -1,8 +1,22 @@
-// Zennix Service Worker
+// Zennix Service Worker v2
 import { precacheAndRoute } from 'workbox-precaching'
 
-// Required by vite-plugin-pwa injectManifest strategy
 precacheAndRoute(self.__WB_MANIFEST)
+
+// Force new service worker to activate immediately
+self.addEventListener('install', event => {
+  self.skipWaiting()
+})
+
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys().then(cacheNames => {
+      return Promise.all(
+        cacheNames.map(cacheName => caches.delete(cacheName))
+      )
+    }).then(() => self.clients.claim())
+  )
+})
 
 self.addEventListener('push', event => {
   if (!event.data) return
