@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { sendPush } from '../lib/push'
 import { supabase } from '../lib/supabase'
@@ -136,6 +136,149 @@ const swipeStyles = {
     zIndex: 1,
     transition: 'transform 0.22s ease',
     willChange: 'transform',
+  },
+}
+
+// ── Animated list loading screen ─────────────────────────────────────────────
+function ListLoadingScreen() {
+  const items = ['🥛 Doodh', '🧅 Pyaaz', '🍅 Tamatar', '🫙 Tel', '🍚 Chawal', '🧴 Shampoo']
+  const [visible, setVisible] = React.useState([])
+  const [tick, setTick] = React.useState(false)
+
+  React.useEffect(() => {
+    let i = 0
+    const timer = setInterval(() => {
+      if (i < items.length) {
+        setVisible(v => [...v, i])
+        i++
+      } else {
+        clearInterval(timer)
+      }
+    }, 280)
+    return () => clearInterval(timer)
+  }, [])
+
+  React.useEffect(() => {
+    const t = setInterval(() => setTick(x => !x), 600)
+    return () => clearInterval(t)
+  }, [])
+
+  return (
+    <div style={listLoadStyles.page}>
+      <div style={listLoadStyles.card}>
+        <p style={listLoadStyles.title}>Loading your list</p>
+        <p style={listLoadStyles.sub}>Fetching items from your household...</p>
+        <div style={listLoadStyles.itemList}>
+          {items.map((item, i) => (
+            <div
+              key={i}
+              style={{
+                ...listLoadStyles.item,
+                opacity: visible.includes(i) ? 1 : 0,
+                transform: visible.includes(i) ? 'translateX(0)' : 'translateX(-16px)',
+                transition: 'all 0.3s ease',
+              }}
+            >
+              <div style={{
+                ...listLoadStyles.checkbox,
+                background: visible.includes(i) && i % 3 === 0 ? '#4f46e5' : '#fff',
+                borderColor: visible.includes(i) && i % 3 === 0 ? '#4f46e5' : '#d1d5db',
+              }}>
+                {visible.includes(i) && i % 3 === 0 && (
+                  <span style={{ color: '#fff', fontSize: '0.6rem', fontWeight: '700' }}>✓</span>
+                )}
+              </div>
+              <span style={listLoadStyles.itemName}>{item}</span>
+              <div style={{ ...listLoadStyles.shimmer, width: `${40 + (i * 13) % 30}px` }} />
+            </div>
+          ))}
+        </div>
+        <div style={listLoadStyles.dotsRow}>
+          {[0,1,2].map(i => (
+            <div key={i} style={{
+              ...listLoadStyles.dot,
+              background: tick && i === 1 ? '#4f46e5' : (!tick && i !== 1) ? '#4f46e5' : '#e0e7ff',
+            }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const listLoadStyles = {
+  page: {
+    minHeight: '100vh',
+    backgroundColor: '#f9fafb',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontFamily: 'sans-serif',
+  },
+  card: {
+    background: '#fff',
+    borderRadius: '20px',
+    padding: '1.75rem 1.5rem',
+    width: '90%',
+    maxWidth: '340px',
+    boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
+  },
+  title: {
+    fontSize: '1.1rem',
+    fontWeight: '700',
+    color: '#111',
+    margin: 0,
+  },
+  sub: {
+    fontSize: '0.8rem',
+    color: '#9ca3af',
+    margin: '0 0 0.75rem',
+  },
+  itemList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.6rem',
+    marginBottom: '1rem',
+  },
+  item: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+  },
+  checkbox: {
+    width: '20px',
+    height: '20px',
+    borderRadius: '50%',
+    border: '2px solid #d1d5db',
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.3s ease',
+  },
+  itemName: {
+    fontSize: '0.9rem',
+    color: '#374151',
+    flex: 1,
+  },
+  shimmer: {
+    height: '8px',
+    background: '#f3f4f6',
+    borderRadius: '4px',
+  },
+  dotsRow: {
+    display: 'flex',
+    justifyContent: 'center',
+    gap: '0.4rem',
+  },
+  dot: {
+    width: '8px',
+    height: '8px',
+    borderRadius: '50%',
+    transition: 'background 0.4s ease',
   },
 }
 
@@ -721,13 +864,7 @@ function ListPage() {
     !filteredLibrary.find(i => i.item_name.toLowerCase() === search.trim().toLowerCase())
 
   if (loading) {
-    return (
-      <div style={styles.page}>
-        <p style={{ padding: '2rem', color: '#888', textAlign: 'center' }}>
-          Setting up your list...
-        </p>
-      </div>
-    )
+    return <ListLoadingScreen />
   }
 
   return (
