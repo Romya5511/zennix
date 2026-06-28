@@ -1,469 +1,369 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import PushPermissionModal from '../components/PushPermissionModal'
 import BottomNav from '../components/BottomNav'
+import { supabase } from '../lib/supabase'
 
-const INCOME_BRACKETS = [
-  { value: 'under_25k', label: 'Under ₹25,000' },
-  { value: '25k_50k', label: '₹25,000 – ₹50,000' },
-  { value: '50k_1l', label: '₹50,000 – ₹1,00,000' },
-  { value: '1l_2l', label: '₹1,00,000 – ₹2,00,000' },
-  { value: 'above_2l', label: 'Above ₹2,00,000' },
-]
+// ── Animated loading screen ──────────────────────────────────────────────────
+function LoadingScreen() {
+  const [dot, setDot] = useState(0)
+  const tips = [
+    '🛒 Syncing your grocery list...',
+    '💰 Calculating this week\'s spend...',
+    '🏠 Loading your household...',
+    '📊 Crunching the numbers...',
+  ]
+  const [tipIndex, setTipIndex] = useState(0)
 
-// ── Month name helper ────────────────────────────────────────────────────────
-function monthLabel(dateStr) {
-  return new Date(dateStr).toLocaleDateString('en-IN', {
-    month: 'long', year: 'numeric'
-  })
-}
+  useEffect(() => {
+    const dotTimer = setInterval(() => setDot(d => (d + 1) % 4), 400)
+    const tipTimer = setInterval(() => setTipIndex(i => (i + 1) % tips.length), 1800)
+    return () => { clearInterval(dotTimer); clearInterval(tipTimer) }
+  }, [])
 
-function formatDate(dateStr) {
-  return new Date(dateStr).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric'
-  })
-}
-
-function getFirstName(fullName) {
-  if (!fullName) return 'Someone'
-  return fullName.split(' ')[0]
-}
-
-// ── Income bracket modal ─────────────────────────────────────────────────────
-function IncomeBracketModal({ onSelect, onSkip }) {
   return (
-    <div style={modalStyles.overlay}>
-      <div style={modalStyles.modal}>
-        <p style={modalStyles.emoji}>📊</p>
-        <h2 style={modalStyles.title}>One quick question</h2>
-        <p style={modalStyles.body}>
-          What is your household's approximate monthly income?
-          This helps us show how your spending compares.
-        </p>
-        <div style={modalStyles.options}>
-          {INCOME_BRACKETS.map(b => (
-            <button
-              key={b.value}
-              style={modalStyles.optionBtn}
-              onClick={() => onSelect(b.value)}
-            >
-              {b.label}
-            </button>
+    <div style={loadStyles.page}>
+      <div style={loadStyles.card}>
+        <div style={loadStyles.logoWrap}>
+          <span style={loadStyles.logoEmoji}>🏠</span>
+        </div>
+        <p style={loadStyles.appName}>Zennix</p>
+        <p style={loadStyles.tagline}>Spend together. Stay calm.</p>
+        <div style={loadStyles.dotsRow}>
+          {[0,1,2,3].map(i => (
+            <div key={i} style={{
+              ...loadStyles.dot,
+              background: i === dot ? '#4f46e5' : '#e0e7ff',
+              transform: i === dot ? 'scale(1.4)' : 'scale(1)',
+            }} />
           ))}
         </div>
-        <button style={modalStyles.skipBtn} onClick={onSkip}>
-          Skip for now
-        </button>
+        <p style={loadStyles.tip}>{tips[tipIndex]}</p>
       </div>
     </div>
   )
 }
 
-// ── List history card ────────────────────────────────────────────────────────
-function ListCard({ list, profiles }) {
-  const [expanded, setExpanded] = useState(false)
-  const [items, setItems] = useState(null)
-  const [loadingItems, setLoadingItems] = useState(false)
-
-  async function loadItems() {
-    if (items !== null) { setExpanded(e => !e); return }
-    setLoadingItems(true)
-    const { data } = await supabase
-      .from('list_items')
-      .select('*')
-      .eq('list_id', list.id)
-      .order('display_order', { ascending: true })
-    setItems(data || [])
-    setLoadingItems(false)
-    setExpanded(true)
-  }
-
-  const doneItems = items ? items.filter(i => i.tab_status === 'done') : []
-  const skippedItems = items ? items.filter(i => i.tab_status !== 'done') : []
-
-  return (
-    <div style={cardStyles.card}>
-      {/* Card header — always visible */}
-      <div style={cardStyles.header} onClick={loadItems}>
-        <div style={cardStyles.headerLeft}>
-          <span style={cardStyles.date}>{formatDate(list.completed_at || list.created_at)}</span>
-          <span style={cardStyles.creator}>
-            Created by {getFirstName(profiles[list.created_by])}
-          </span>
-        </div>
-        <div style={cardStyles.headerRight}>
-          <span style={cardStyles.total}>
-            ₹{parseFloat(list.total_amount || 0).toFixed(0)}
-          </span>
-          <span style={cardStyles.chevron}>{expanded ? '▲' : '▼'}</span>
-        </div>
-      </div>
-
-      {/* Item count pills */}
-      <div style={cardStyles.pills}>
-        <span style={cardStyles.pillGreen}>
-          ✓ {list.item_count || 0} bought
-        </span>
-        {list.status === 'completed' ? (
-          <span style={cardStyles.pillGrey}>Complete</span>
-        ) : (
-          <span style={cardStyles.pillAmber}>Partial</span>
-        )}
-      </div>
-
-      {/* Expanded items */}
-      {loadingItems && (
-        <p style={cardStyles.loadingNote}>Loading items...</p>
-      )}
-
-      {expanded && items && (
-        <div style={cardStyles.itemList}>
-          <div style={cardStyles.divider} />
-
-          {doneItems.length > 0 && (
-            <>
-              <p style={cardStyles.sectionLabel}>Bought</p>
-              {doneItems.map(item => (
-                <div key={item.id} style={cardStyles.itemRow}>
-                  <span style={cardStyles.itemName}>{item.item_name}</span>
-                  <span style={cardStyles.itemMeta}>
-                    {item.quantity ? `${item.quantity} · ` : ''}
-                    {getFirstName(profiles[item.ticked_by])}
-                  </span>
-                  <span style={cardStyles.itemPrice}>
-                    ₹{parseFloat(item.price_entered || 0).toFixed(2)}
-                  </span>
-                </div>
-              ))}
-            </>
-          )}
-
-          {skippedItems.length > 0 && (
-            <>
-              <p style={{ ...cardStyles.sectionLabel, color: '#9ca3af', marginTop: '0.75rem' }}>
-                Not bought ({skippedItems.length})
-              </p>
-              {skippedItems.map(item => (
-                <div key={item.id} style={{ ...cardStyles.itemRow, opacity: 0.5 }}>
-                  <span style={cardStyles.itemName}>{item.item_name}</span>
-                  <span style={cardStyles.itemMeta}>{item.quantity || ''}</span>
-                  <span style={cardStyles.itemPrice}>—</span>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  )
+const loadStyles = {
+  page: { minHeight: '100vh', backgroundColor: '#f5f3ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' },
+  card: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', padding: '2.5rem 2rem', background: '#fff', borderRadius: '24px', boxShadow: '0 8px 40px rgba(79,70,229,0.12)', maxWidth: '320px', width: '90%' },
+  logoWrap: { width: '72px', height: '72px', background: '#ede9fe', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.25rem' },
+  logoEmoji: { fontSize: '2rem' },
+  appName: { fontSize: '1.75rem', fontWeight: '800', color: '#4f46e5', margin: 0, letterSpacing: '-0.02em' },
+  tagline: { fontSize: '0.875rem', color: '#9ca3af', margin: 0 },
+  dotsRow: { display: 'flex', gap: '0.5rem', alignItems: 'center', margin: '0.75rem 0 0.25rem' },
+  dot: { width: '10px', height: '10px', borderRadius: '50%', transition: 'all 0.3s ease' },
+  tip: { fontSize: '0.82rem', color: '#6b7280', margin: 0, textAlign: 'center', minHeight: '1.2rem' },
 }
 
-// ── Main HistoryPage ─────────────────────────────────────────────────────────
-function HistoryPage() {
+function Home() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
-  const [lists, setLists] = useState([])
-  const [profiles, setProfiles] = useState({})
-  const [monthlyGrocery, setMonthlyGrocery] = useState(0)
-  const [monthlyFixed, setMonthlyFixed] = useState(0)
-  const [incomeBracket, setIncomeBracket] = useState(null)
-  const [showBracketModal, setShowBracketModal] = useState(false)
-  const [householdId, setHouseholdId] = useState(null)
+  const [showPushModal, setShowPushModal] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState(null)
+  const [profile, setProfile] = useState(null)
+  const [activeList, setActiveList] = useState(null)
+  const [completedList, setCompletedList] = useState(null)
+  const [itemCount, setItemCount] = useState(0)
+  const [creatorName, setCreatorName] = useState('')
+  const [unseenList, setUnseenList] = useState(null)
+  const [showUnseenModal, setShowUnseenModal] = useState(false)
+  const [weekTotal, setWeekTotal] = useState(0)
+  const [lastWeekTotal, setLastWeekTotal] = useState(0)
+  const channelRef = useRef(null)
+  const householdIdRef = useRef(null)
+  const currentUserIdRef = useRef(null)
 
-  useEffect(() => { loadHistory() }, [])
+  useEffect(() => {
+    loadHome()
+    return () => {
+      if (channelRef.current) supabase.removeChannel(channelRef.current)
+    }
+  }, [])
 
-  async function loadHistory() {
+  async function loadHome() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { navigate('/'); return }
 
-    const { data: membership } = await supabase
-      .from('household_members')
-      .select('household_id')
-      .eq('user_id', user.id)
-      .maybeSingle()
-    if (!membership) { navigate('/'); return }
-    const hid = membership.household_id
-    setHouseholdId(hid)
+    const { data: profileData } = await supabase
+      .from('profiles').select('id, full_name').eq('id', user.id).maybeSingle()
+    setProfile(profileData)
+    setCurrentUserId(user.id)
+    currentUserIdRef.current = user.id
 
-    // Load profiles
-    const { data: members } = await supabase
-      .from('household_members')
-      .select('user_id')
-      .eq('household_id', hid)
-    if (members) {
-      const uids = members.map(m => m.user_id)
-      const { data: profileRows } = await supabase
-        .from('profiles').select('id, full_name').in('id', uids)
-      if (profileRows) {
-        const map = {}
-        profileRows.forEach(p => { map[p.id] = p.full_name })
-        setProfiles(map)
+    if (!sessionStorage.getItem('push_prompt_seen')) {
+      const { data: profileFull } = await supabase
+        .from('profiles').select('push_subscription').eq('id', user.id).maybeSingle()
+      if (!profileFull?.push_subscription && 'Notification' in window && 'serviceWorker' in navigator) {
+        setShowPushModal(true)
       }
+      sessionStorage.setItem('push_prompt_seen', '1')
     }
 
-    // Load income bracket from household
-    const { data: household } = await supabase
-      .from('households')
-      .select('income_bracket')
-      .eq('id', hid)
-      .maybeSingle()
+    const { data: membership } = await supabase
+      .from('household_members').select('household_id').eq('user_id', user.id).maybeSingle()
+    if (!membership) { navigate('/setup'); return }
 
-    if (household?.income_bracket) {
-      setIncomeBracket(household.income_bracket)
-    } else {
-      // Show bracket modal on first open
-      setShowBracketModal(true)
-    }
+    const hid = membership.household_id
+    householdIdRef.current = hid
 
-    // Load all grocery lists (completed + partial) newest first
-    const { data: allLists } = await supabase
-      .from('grocery_lists')
-      .select('id, created_at, completed_at, total_amount, status, created_by')
-      .eq('household_id', hid)
-      .in('status', ['completed', 'active', 'abandoned'])
-      .order('created_at', { ascending: false })
-
-    // For each list get item count
-    const listsWithCount = await Promise.all(
-      (allLists || []).map(async list => {
-        const { count } = await supabase
-          .from('list_items')
-          .select('id', { count: 'exact', head: true })
-          .eq('list_id', list.id)
-          .eq('tab_status', 'done')
-        return { ...list, item_count: count || 0 }
-      })
-    )
-    setLists(listsWithCount)
-
-    // Monthly summary — current month
-    const now = new Date()
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString()
-
-    const { data: monthBucket } = await supabase
-      .from('household_bucket')
-      .select('amount, source_type')
-      .eq('household_id', hid)
-      .gte('bought_at', monthStart)
-      .lt('bought_at', monthEnd)
-
-    const grocery = (monthBucket || [])
-      .filter(e => e.source_type === 'grocery_list')
-      .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
-    const fixed = (monthBucket || [])
-      .filter(e => e.source_type === 'fixed_cost')
-      .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
-
-    setMonthlyGrocery(grocery)
-    setMonthlyFixed(fixed)
+    await checkLists(hid, user.id)
+    await loadWeeklySpend(hid)
+    subscribeToHousehold(hid)
     setLoading(false)
   }
 
-  async function saveIncomeBracket(value) {
-    setIncomeBracket(value)
-    setShowBracketModal(false)
-    await supabase
-      .from('households')
-      .update({ income_bracket: value })
-      .eq('id', householdId)
+  async function loadWeeklySpend(hid) {
+    const now = new Date()
+    const dayOfWeek = now.getDay()
+    const diffToMonday = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek)
+    const thisMonday = new Date(now)
+    thisMonday.setDate(now.getDate() + diffToMonday)
+    thisMonday.setHours(0, 0, 0, 0)
+    const lastMonday = new Date(thisMonday)
+    lastMonday.setDate(thisMonday.getDate() - 7)
+    const lastSunday = new Date(thisMonday)
+    lastSunday.setMilliseconds(-1)
+
+    const { data: thisWeekData } = await supabase
+      .from('household_bucket').select('amount').eq('household_id', hid)
+      .gte('bought_at', thisMonday.toISOString())
+    const { data: lastWeekData } = await supabase
+      .from('household_bucket').select('amount').eq('household_id', hid)
+      .gte('bought_at', lastMonday.toISOString()).lte('bought_at', lastSunday.toISOString())
+
+    setWeekTotal((thisWeekData || []).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0))
+    setLastWeekTotal((lastWeekData || []).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0))
   }
 
-  function getBracketLabel(value) {
-    return INCOME_BRACKETS.find(b => b.value === value)?.label || ''
+  async function checkLists(hid, uid) {
+    const { data: activeLists } = await supabase
+      .from('grocery_lists')
+      .select('id, created_at, created_by, status, notification_seen_by')
+      .eq('household_id', hid).eq('status', 'active')
+      .order('created_at', { ascending: false }).limit(5)
+
+    if (activeLists && activeLists.length > 0) {
+      for (const list of activeLists) {
+        const { count } = await supabase
+          .from('list_items').select('id', { count: 'exact', head: true }).eq('list_id', list.id)
+        if (count && count > 0) {
+          setActiveList(list)
+          setCompletedList(null)
+          setItemCount(count)
+          const { data: creator } = await supabase
+            .from('profiles').select('full_name').eq('id', list.created_by).maybeSingle()
+          setCreatorName(creator?.full_name || 'Someone')
+          const seenBy = list.notification_seen_by || []
+          if (uid && !seenBy.includes(uid)) {
+            setUnseenList({ ...list, creatorName: creator?.full_name || 'Someone', itemCount: count })
+            setShowUnseenModal(true)
+          }
+          return
+        } else {
+          await supabase.from('grocery_lists').delete().eq('id', list.id)
+        }
+      }
+    }
+
+    const { data: completed } = await supabase
+      .from('grocery_lists').select('id, completed_at, total_amount, status')
+      .eq('household_id', hid).eq('status', 'completed')
+      .order('completed_at', { ascending: false }).limit(1).maybeSingle()
+
+    if (completed) {
+      const { count: doneCount } = await supabase
+        .from('list_items').select('id', { count: 'exact', head: true }).eq('list_id', completed.id)
+      setCompletedList({ ...completed, itemCount: doneCount || 0 })
+      setActiveList(null); setItemCount(0); setCreatorName('')
+    } else {
+      setActiveList(null); setCompletedList(null); setItemCount(0); setCreatorName('')
+    }
   }
 
-  // Income % of bracket midpoints (approximate)
-  const bracketMidpoints = {
-    under_25k: 20000,
-    '25k_50k': 37500,
-    '50k_1l': 75000,
-    '1l_2l': 150000,
-    above_2l: 250000,
+  function subscribeToHousehold(hid) {
+    if (channelRef.current) supabase.removeChannel(channelRef.current)
+    const channel = supabase.channel(`home_${hid}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'grocery_lists', filter: `household_id=eq.${hid}` },
+        async () => { await checkLists(householdIdRef.current, currentUserIdRef.current) })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'list_items' },
+        async () => { await checkLists(householdIdRef.current, currentUserIdRef.current) })
+      .subscribe()
+    channelRef.current = channel
   }
 
-  const monthTotal = monthlyGrocery + monthlyFixed
-  const midpoint = incomeBracket ? bracketMidpoints[incomeBracket] : null
-  const spendPct = midpoint ? Math.round((monthTotal / midpoint) * 100) : null
-
-  if (loading) {
-    return (
-      <div style={styles.page}>
-        <div style={styles.header}>
-          <h1 style={styles.title}>List History</h1>
-        </div>
-        <p style={styles.loadingText}>Loading your history...</p>
-      </div>
-    )
+  function getGreeting() {
+    const hour = new Date().getHours()
+    if (hour < 12) return 'Good morning'
+    if (hour < 17) return 'Good afternoon'
+    return 'Good evening'
   }
 
-  const now = new Date()
-  const currentMonthLabel = now.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+  function getFirstName(fullName) {
+    if (!fullName) return ''
+    return fullName.split(' ')[0]
+  }
+
+  function formatDate(dateStr) {
+    return new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+  }
+
+  function weekChangeText() {
+    if (lastWeekTotal === 0) return null
+    const diff = weekTotal - lastWeekTotal
+    const pct = Math.abs(Math.round((diff / lastWeekTotal) * 100))
+    if (diff > 0) return { text: `↑ ${pct}% vs last week` }
+    if (diff < 0) return { text: `↓ ${pct}% vs last week` }
+    return { text: 'Same as last week' }
+  }
+
+  if (loading) return <LoadingScreen />
+
+  const change = weekChangeText()
 
   return (
     <div style={styles.page}>
+      <div style={styles.container}>
 
-      {/* Header */}
-      <div style={styles.header}>
-        <h1 style={styles.title}>List History</h1>
-      </div>
-
-      <div style={styles.content}>
-
-        {/* Monthly summary card */}
-        <div style={styles.monthCard}>
-          <p style={styles.monthLabel}>{currentMonthLabel}</p>
-          <p style={styles.monthTotal}>₹{monthTotal.toFixed(2)}</p>
-          <div style={styles.monthBreakdown}>
-            <div style={styles.monthItem}>
-              <span style={styles.monthItemDot} />
-              <span style={styles.monthItemText}>Grocery</span>
-              <span style={styles.monthItemAmt}>₹{monthlyGrocery.toFixed(0)}</span>
-            </div>
-            <div style={styles.monthItem}>
-              <span style={{ ...styles.monthItemDot, background: '#f59e0b' }} />
-              <span style={styles.monthItemText}>Fixed</span>
-              <span style={styles.monthItemAmt}>₹{monthlyFixed.toFixed(0)}</span>
-            </div>
-          </div>
-
-          {/* Income bracket comparison */}
-          {incomeBracket && spendPct !== null && (
-            <div style={styles.bracketRow}>
-              <span style={styles.bracketText}>
-                {spendPct}% of your monthly income
-              </span>
-              <span
-                style={{
-                  ...styles.bracketBadge,
-                  background: spendPct > 50 ? '#fee2e2' : spendPct > 30 ? '#fef9c3' : '#dcfce7',
-                  color: spendPct > 50 ? '#dc2626' : spendPct > 30 ? '#a16207' : '#16a34a',
-                }}
-              >
-                {spendPct > 50 ? 'High' : spendPct > 30 ? 'Moderate' : 'Healthy'}
-              </span>
-            </div>
-          )}
-
-          {!incomeBracket && (
-            <button
-              style={styles.bracketSetBtn}
-              onClick={() => setShowBracketModal(true)}
-            >
-              + Set income bracket for comparison
-            </button>
-          )}
+        <div style={styles.greeting}>
+          <p style={styles.greetingText}>{getGreeting()}, {getFirstName(profile?.full_name)} 👋</p>
+          <p style={styles.subText}>What needs to be done today?</p>
         </div>
 
-        {/* List history */}
-        <p style={styles.sectionTitle}>Past Lists</p>
-
-        {lists.length === 0 ? (
-          <div style={styles.emptyCard}>
-            <p style={styles.emptyIcon}>🛒</p>
-            <p style={styles.emptyText}>No lists yet.</p>
-            <p style={styles.emptySubText}>Complete your first grocery list to see it here.</p>
+        {/* Weekly spend summary card */}
+        <div style={styles.spendSummaryCard} onClick={() => navigate('/spend')}>
+          <div style={styles.spendSummaryLeft}>
+            <p style={styles.spendSummaryLabel}>This week's spend</p>
+            <p style={styles.spendSummaryTotal}>₹{weekTotal.toFixed(2)}</p>
+            {change ? (
+              <p style={styles.spendSummaryChange}>{change.text}</p>
+            ) : (
+              <p style={styles.spendSummaryChange}>Tap to see full history</p>
+            )}
           </div>
+          <span style={styles.spendSummaryArrow}>→</span>
+        </div>
+
+        {activeList ? (
+          <div style={styles.listCard}>
+            <div style={styles.listCardTop}>
+              <span style={styles.activeBadge}>● Active list</span>
+              <span style={styles.listDate}>{formatDate(activeList.created_at)}</span>
+            </div>
+            <div style={styles.listCardBody}>
+              <p style={styles.listStat}>🛒 <strong>{itemCount}</strong> {itemCount === 1 ? 'item' : 'items'}</p>
+              <p style={styles.listCreator}>Created by {creatorName}</p>
+            </div>
+            <button style={styles.openListBtn} onClick={() => navigate(`/list/${activeList.id}`)}>
+              Open list →
+            </button>
+          </div>
+
+        ) : completedList ? (
+          <div style={styles.completionCard}>
+            <div style={styles.completionTop}>
+              <span style={styles.completionEmoji}>🎉</span>
+              <span style={styles.completionBadge}>List complete!</span>
+            </div>
+            <div style={styles.completionBody}>
+              <p style={styles.completionTotal}>₹{parseFloat(completedList.total_amount || 0).toFixed(2)}</p>
+              <p style={styles.completionMeta}>
+                {completedList.itemCount} {completedList.itemCount === 1 ? 'item' : 'items'} · {formatDate(completedList.completed_at)}
+              </p>
+            </div>
+            <button style={styles.openListBtn} onClick={() => navigate(`/list/${completedList.id}?tab=done`)}>
+              View list →
+            </button>
+            <button style={styles.startNewBtn} onClick={() => setCompletedList(null)}>
+              + Start new list
+            </button>
+          </div>
+
         ) : (
-          lists.map(list => (
-            <ListCard
-              key={list.id}
-              list={list}
-              profiles={profiles}
-            />
-          ))
+          <div style={styles.emptyCard}>
+            <p style={styles.emptyText}>No active grocery list</p>
+            <p style={styles.emptySubText}>Tap below to start one — your partner will be notified.</p>
+            <button style={styles.createBtn} onClick={() => navigate('/list/new')}>
+              + Create grocery list
+            </button>
+          </div>
         )}
 
       </div>
 
-      {/* Income bracket modal */}
-      {showBracketModal && (
-        <IncomeBracketModal
-          onSelect={saveIncomeBracket}
-          onSkip={() => setShowBracketModal(false)}
-        />
+      {showPushModal && (
+        <PushPermissionModal userId={currentUserId} onDone={() => setShowPushModal(false)} />
       )}
 
-      {/* Bottom nav */}
-      <BottomNav />
+      {showUnseenModal && unseenList && (
+        <div style={modalStyles.overlay}>
+          <div style={modalStyles.modal}>
+            <div style={modalStyles.iconWrap}>🛒</div>
+            <h2 style={modalStyles.title}>New grocery list!</h2>
+            <p style={modalStyles.body}>
+              <strong>{getFirstName(unseenList.creatorName)}</strong> started a grocery list
+              with <strong>{unseenList.itemCount} {unseenList.itemCount === 1 ? 'item' : 'items'}</strong>.
+              You haven't seen it yet.
+            </p>
+            <button style={modalStyles.viewBtn} onClick={() => { setShowUnseenModal(false); navigate(`/list/${unseenList.id}`) }}>
+              View list →
+            </button>
+            <button style={modalStyles.laterBtn} onClick={() => setShowUnseenModal(false)}>
+              I'll check later
+            </button>
+          </div>
+        </div>
+      )}
 
+      {/* Bottom nav spacer */}
+      <div style={{ height: '80px' }} />
+      <BottomNav />
     </div>
   )
 }
 
 const styles = {
-  page: { minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: 'sans-serif', paddingBottom: '2rem' },
-  loadingText: { padding: '2rem', color: '#888', textAlign: 'center' },
-  header: {
-    padding: '1rem 1rem 0.75rem',
-    background: '#fff',
-    borderBottom: '1px solid #f3f4f6',
-  },
-  title: { fontSize: '1.1rem', fontWeight: '700', margin: 0, color: '#111' },
-  content: { maxWidth: '480px', margin: '0 auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' },
-
-  // Monthly card
-  monthCard: {
-    background: '#fff',
-    borderRadius: '16px',
-    padding: '1.25rem',
-    boxShadow: '0 2px 12px rgba(0,0,0,0.07)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.5rem',
-  },
-  monthLabel: { fontSize: '0.8rem', fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 },
-  monthTotal: { fontSize: '2rem', fontWeight: '800', color: '#111', margin: 0 },
-  monthBreakdown: { display: 'flex', gap: '1.25rem', marginTop: '0.25rem' },
-  monthItem: { display: 'flex', alignItems: 'center', gap: '0.4rem' },
-  monthItemDot: { width: '8px', height: '8px', borderRadius: '50%', background: '#4f46e5', flexShrink: 0 },
-  monthItemText: { fontSize: '0.8rem', color: '#6b7280' },
-  monthItemAmt: { fontSize: '0.8rem', fontWeight: '700', color: '#111' },
-  bracketRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid #f3f4f6' },
-  bracketText: { fontSize: '0.82rem', color: '#6b7280' },
-  bracketBadge: { fontSize: '0.75rem', fontWeight: '700', padding: '0.2rem 0.6rem', borderRadius: '999px' },
-  bracketSetBtn: { marginTop: '0.5rem', background: 'none', border: 'none', color: '#4f46e5', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer', padding: 0, textAlign: 'left' },
-
-  sectionTitle: { fontSize: '0.8rem', fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0.5rem 0 0' },
-
-  emptyCard: { background: '#fff', borderRadius: '16px', padding: '2rem', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' },
-  emptyIcon: { fontSize: '2rem', margin: 0 },
+  page: { minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: 'sans-serif', padding: '1rem' },
+  container: { maxWidth: '480px', margin: '0 auto', paddingTop: '2rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' },
+  greeting: { marginBottom: '0.5rem' },
+  greetingText: { fontSize: '1.5rem', fontWeight: '700', color: '#111', margin: '0 0 0.25rem' },
+  subText: { fontSize: '0.9rem', color: '#888', margin: 0 },
+  spendSummaryCard: { background: '#4f46e5', borderRadius: '16px', padding: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', boxShadow: '0 4px 16px rgba(79,70,229,0.25)' },
+  spendSummaryLeft: { display: 'flex', flexDirection: 'column', gap: '0.2rem' },
+  spendSummaryLabel: { fontSize: '0.8rem', fontWeight: '700', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 },
+  spendSummaryTotal: { fontSize: '1.75rem', fontWeight: '800', color: '#fff', margin: 0 },
+  spendSummaryChange: { fontSize: '0.8rem', fontWeight: '600', color: 'rgba(255,255,255,0.8)', margin: 0 },
+  spendSummaryArrow: { fontSize: '1.25rem', color: 'rgba(255,255,255,0.7)' },
+  listCard: { background: '#fff', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', display: 'flex', flexDirection: 'column', gap: '1rem' },
+  listCardTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  activeBadge: { fontSize: '0.75rem', fontWeight: '700', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em' },
+  listDate: { fontSize: '0.8rem', color: '#aaa' },
+  listCardBody: { display: 'flex', flexDirection: 'column', gap: '0.25rem' },
+  listStat: { fontSize: '1.1rem', color: '#111', margin: 0 },
+  listCreator: { fontSize: '0.85rem', color: '#888', margin: 0 },
+  openListBtn: { width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: '700', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '12px', cursor: 'pointer' },
+  completionCard: { background: '#fff', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', display: 'flex', flexDirection: 'column', gap: '1rem', border: '1px solid #bbf7d0' },
+  completionTop: { display: 'flex', alignItems: 'center', gap: '0.5rem' },
+  completionEmoji: { fontSize: '1.25rem' },
+  completionBadge: { fontSize: '0.85rem', fontWeight: '700', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em' },
+  completionBody: { display: 'flex', flexDirection: 'column', gap: '0.25rem' },
+  completionTotal: { fontSize: '2rem', fontWeight: '800', color: '#111', margin: 0 },
+  completionMeta: { fontSize: '0.875rem', color: '#888', margin: 0 },
+  startNewBtn: { width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: '700', backgroundColor: '#fff', color: '#4f46e5', border: '2px solid #4f46e5', borderRadius: '12px', cursor: 'pointer' },
+  emptyCard: { background: '#fff', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' },
   emptyText: { fontSize: '1rem', fontWeight: '600', color: '#111', margin: 0 },
-  emptySubText: { fontSize: '0.875rem', color: '#888', margin: 0 },
-}
-
-const cardStyles = {
-  card: { background: '#fff', borderRadius: '16px', padding: '1rem 1.25rem', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', cursor: 'pointer' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
-  headerLeft: { display: 'flex', flexDirection: 'column', gap: '0.2rem' },
-  headerRight: { display: 'flex', alignItems: 'center', gap: '0.5rem' },
-  date: { fontSize: '0.9rem', fontWeight: '600', color: '#111' },
-  creator: { fontSize: '0.75rem', color: '#9ca3af' },
-  total: { fontSize: '1.1rem', fontWeight: '800', color: '#4f46e5' },
-  chevron: { fontSize: '0.7rem', color: '#9ca3af' },
-  pills: { display: 'flex', gap: '0.5rem', marginTop: '0.6rem' },
-  pillGreen: { fontSize: '0.7rem', fontWeight: '600', background: '#dcfce7', color: '#16a34a', padding: '0.2rem 0.55rem', borderRadius: '999px' },
-  pillGrey: { fontSize: '0.7rem', fontWeight: '600', background: '#f3f4f6', color: '#6b7280', padding: '0.2rem 0.55rem', borderRadius: '999px' },
-  pillAmber: { fontSize: '0.7rem', fontWeight: '600', background: '#fef9c3', color: '#a16207', padding: '0.2rem 0.55rem', borderRadius: '999px' },
-  loadingNote: { fontSize: '0.8rem', color: '#9ca3af', textAlign: 'center', padding: '0.5rem 0', margin: 0 },
-  divider: { borderTop: '1px solid #f3f4f6', margin: '0.75rem 0' },
-  itemList: { marginTop: '0.25rem' },
-  sectionLabel: { fontSize: '0.72rem', fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '0 0 0.4rem' },
-  itemRow: { display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', borderBottom: '1px solid #f9fafb' },
-  itemName: { flex: 1, fontSize: '0.85rem', color: '#111' },
-  itemMeta: { fontSize: '0.75rem', color: '#9ca3af' },
-  itemPrice: { fontSize: '0.85rem', fontWeight: '600', color: '#16a34a', flexShrink: 0 },
+  emptySubText: { fontSize: '0.875rem', color: '#888', margin: 0, lineHeight: '1.5' },
+  createBtn: { width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: '700', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '12px', cursor: 'pointer', marginTop: '0.25rem' },
 }
 
 const modalStyles = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' },
-  modal: { background: '#fff', borderRadius: '20px 20px 0 0', padding: '1.5rem 1.25rem 2.5rem', width: '100%', maxWidth: '480px', display: 'flex', flexDirection: 'column', gap: '0.75rem' },
-  emoji: { fontSize: '1.75rem', margin: 0, textAlign: 'center' },
-  title: { fontSize: '1.1rem', fontWeight: '800', color: '#111', margin: 0, textAlign: 'center' },
-  body: { fontSize: '0.875rem', color: '#6b7280', textAlign: 'center', margin: 0, lineHeight: '1.5' },
-  options: { display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.25rem' },
-  optionBtn: { width: '100%', padding: '0.85rem', fontSize: '0.95rem', fontWeight: '600', background: '#f9fafb', color: '#111', border: '1px solid #e5e7eb', borderRadius: '12px', cursor: 'pointer', textAlign: 'left' },
-  skipBtn: { background: 'none', border: 'none', color: '#9ca3af', fontSize: '0.875rem', cursor: 'pointer', textAlign: 'center', padding: '0.5rem' },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' },
+  modal: { background: '#fff', borderRadius: '20px', padding: '2rem 1.5rem', maxWidth: '360px', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', boxShadow: '0 8px 40px rgba(0,0,0,0.18)' },
+  iconWrap: { fontSize: '2.5rem', marginBottom: '0.25rem' },
+  title: { fontSize: '1.25rem', fontWeight: '800', color: '#111', margin: 0, textAlign: 'center' },
+  body: { fontSize: '0.95rem', color: '#444', textAlign: 'center', lineHeight: '1.6', margin: 0 },
+  viewBtn: { width: '100%', padding: '0.9rem', fontSize: '1rem', fontWeight: '700', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: '12px', cursor: 'pointer', marginTop: '0.5rem' },
+  laterBtn: { width: '100%', padding: '0.75rem', fontSize: '0.9rem', fontWeight: '600', background: 'none', color: '#888', border: '1px solid #e5e7eb', borderRadius: '12px', cursor: 'pointer' },
 }
 
-export default HistoryPage
+export default Home
