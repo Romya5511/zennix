@@ -15,6 +15,12 @@ function App() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // ── Strip the # hash that Supabase OAuth adds to the URL ──
+    // This prevents React Router from getting confused by /#
+    if (window.location.hash) {
+      window.history.replaceState(null, '', window.location.pathname || '/')
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       setLoading(false)
@@ -27,6 +33,10 @@ function App() {
       setUser(session?.user ?? null)
       if (session?.user) {
         saveProfile(session.user)
+        // After auth state change, make sure we are on home not a stale route
+        if (window.location.hash) {
+          window.history.replaceState(null, '', '/')
+        }
       }
     })
 
@@ -57,7 +67,7 @@ function App() {
             <Route path="/list/:id"    element={<ListPage />} />
             <Route path="/fixed-costs" element={<FixedCosts />} />
             <Route path="/spend"       element={<SpendPage />} />
-            <Route path="*"            element={<Navigate to="/" />} />
+            <Route path="*"            element={<Navigate to="/" replace />} />
           </>
         )}
       </Routes>
