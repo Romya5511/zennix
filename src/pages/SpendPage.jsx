@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import BottomNav from '../components/BottomNav'
+import LoadingScreen from '../components/LoadingScreen'
 
 function getFirstName(fullName) {
   if (!fullName) return 'Someone'
@@ -306,18 +307,7 @@ function SpendPage() {
     return { bars, grocery, fixed, perPerson, total: grocery + fixed }
   }
 
-  if (loading) {
-    return (
-      <div style={styles.page}>
-        <div style={styles.header}>
-          {/* ── FIXED: always navigate to / instead of browser back ── */}
-          <button style={styles.backBtn} onClick={() => navigate('/')}>← Back</button>
-          <h1 style={styles.title}>Spend Analytics</h1>
-        </div>
-        <p style={styles.loadingText}>Loading your spend data...</p>
-      </div>
-    )
-  }
+  if (loading) return <LoadingScreen type="spend" />
 
   const weekData = getWeekData()
   const monthData = getMonthData()

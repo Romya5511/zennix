@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import BottomNav from '../components/BottomNav'
+import LoadingScreen from '../components/LoadingScreen'
 
 const SUGGESTIONS = [
   'Rent', 'Electricity', 'WiFi', 'Gas', 'School fees',
@@ -305,13 +306,7 @@ function FixedCosts() {
     !filteredSuggestions.find(s => s.toLowerCase() === search.trim().toLowerCase()) &&
     !costs.find(c => c.description.toLowerCase() === search.trim().toLowerCase())
 
-  if (loading) {
-    return (
-      <div style={styles.page}>
-        <p style={{ padding: '2rem', color: '#888', textAlign: 'center' }}>Loading...</p>
-      </div>
-    )
-  }
+  if (loading) return <LoadingScreen type="fixed" />
 
   return (
     <div style={styles.page}>

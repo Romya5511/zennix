@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { sendPush } from '../lib/push'
 import { supabase } from '../lib/supabase'
+import LoadingScreen from '../components/LoadingScreen'
 
 const SEED_ITEMS = [
   'Atta', 'Doodh', 'Chawal', 'Dal', 'Chini', 'Namak', 'Tel', 'Sabzi',
@@ -864,7 +865,7 @@ function ListPage() {
     !filteredLibrary.find(i => i.item_name.toLowerCase() === search.trim().toLowerCase())
 
   if (loading) {
-    return <ListLoadingScreen />
+    return <LoadingScreen type="list" />
   }
 
   return (

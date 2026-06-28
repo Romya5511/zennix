@@ -7,9 +7,9 @@ function BottomNav() {
 
   const tabs = [
     { label: 'Home', icon: '🏠', route: '/' },
-    { label: 'History', icon: '🛒', route: '/history' },
-    { label: 'Fixed', icon: '📅', route: '/fixed-costs' },
+    { label: 'Fixed Costs', icon: '📅', route: '/fixed-costs' },
     { label: 'Spend', icon: '📊', route: '/spend' },
+    { label: 'History', icon: '🛒', route: '/history' },
   ]
 
   return (
@@ -62,11 +62,11 @@ const styles = {
     background: 'none',
     border: 'none',
     cursor: 'pointer',
-    padding: '0.25rem 0',
+    padding: '0.25rem 0.1rem',
     position: 'relative',
   },
   icon: { fontSize: '1.35rem' },
-  label: { fontSize: '0.7rem' },
+  label: { fontSize: '0.62rem', textAlign: 'center', lineHeight: '1.2' },
   activeDot: {
     position: 'absolute',
     bottom: '-0.5rem',

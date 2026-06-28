@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import BottomNav from '../components/BottomNav'
+import LoadingScreen from '../components/LoadingScreen'
 
 const INCOME_BRACKETS = [
   { value: 'under_25k', label: 'Under ₹25,000' },
@@ -285,16 +287,7 @@ function HistoryPage() {
   const midpoint = incomeBracket ? bracketMidpoints[incomeBracket] : null
   const spendPct = midpoint ? Math.round((monthTotal / midpoint) * 100) : null
 
-  if (loading) {
-    return (
-      <div style={styles.page}>
-        <div style={styles.header}>
-          <h1 style={styles.title}>List History</h1>
-        </div>
-        <p style={styles.loadingText}>Loading your history...</p>
-      </div>
-    )
-  }
+  if (loading) return <LoadingScreen type="history" />
 
   const now = new Date()
   const currentMonthLabel = now.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
@@ -383,8 +376,8 @@ function HistoryPage() {
         />
       )}
 
-      {/* Bottom nav spacer */}
-      <div style={{ height: '80px' }} />
+      {/* Bottom nav */}
+      <BottomNav />
 
     </div>
   )
