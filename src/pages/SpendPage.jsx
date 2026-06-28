@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import BottomNav from '../components/BottomNav'
 
 function getFirstName(fullName) {
   if (!fullName) return 'Someone'
@@ -443,6 +444,9 @@ function SpendPage() {
           onClose={() => { setSelectedMonth(null); setHighlightBar(null) }}
         />
       )}
+
+      <div style={{ height: '80px' }} />
+      <BottomNav />
 
     </div>
   )

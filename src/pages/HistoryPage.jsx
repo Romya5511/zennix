@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import BottomNav from '../components/BottomNav'
 
 const INCOME_BRACKETS = [
   { value: 'under_25k', label: 'Under ₹25,000' },
@@ -384,8 +383,8 @@ function HistoryPage() {
         />
       )}
 
-      {/* Bottom nav */}
-      <BottomNav />
+      {/* Bottom nav spacer */}
+      <div style={{ height: '80px' }} />
 
     </div>
   )

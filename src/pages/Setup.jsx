@@ -45,8 +45,8 @@ function Setup() {
     setLoading(false)
   }
 
-  function goToDashboard() {
-    navigate('/dashboard')
+  function goToHome() {
+    navigate('/')
   }
 
   return (
@@ -60,7 +60,7 @@ function Setup() {
             <input
               style={styles.input}
               type="text"
-              placeholder="e.g. Romya & Partner's Home"
+              placeholder="e.g. Romya & Sonali's Home"
               value={householdName}
               onChange={(e) => setHouseholdName(e.target.value)}
               disabled={loading}
@@ -78,19 +78,33 @@ function Setup() {
           <div style={styles.inviteBox}>
             <p style={styles.successText}>✅ Household created!</p>
             <p style={styles.inviteText}>
-              Now send this invite to your partner on WhatsApp. Once they join, you can go to your dashboard.
+              Send this invite to your partner on WhatsApp so they can join.
             </p>
-            
-              <a href={inviteLink}
+
+            <a
+              href={inviteLink}
               target="_blank"
               rel="noopener noreferrer"
               style={styles.whatsappButton}
             >
               📲 Send WhatsApp invite
             </a>
-            <button style={styles.secondaryButton} onClick={goToDashboard}>
-              I've sent it — go to dashboard →
+
+            <button style={styles.secondaryButton} onClick={goToHome}>
+              I've sent it — go to home →
             </button>
+
+            {/* ── NEW: Solo user option ── */}
+            <div style={styles.divider}>
+              <span style={styles.dividerText}>or</span>
+            </div>
+
+            <button style={styles.soloButton} onClick={goToHome}>
+              Use alone for now
+            </button>
+            <p style={styles.soloNote}>
+              You can invite someone later from Settings.
+            </p>
           </div>
         )}
       </div>
@@ -139,7 +153,7 @@ const styles = {
     cursor: 'pointer',
   },
   error: { color: '#dc2626', fontSize: '0.85rem', margin: '0 0 1rem' },
-  inviteBox: { display: 'flex', flexDirection: 'column', gap: '1rem' },
+  inviteBox: { display: 'flex', flexDirection: 'column', gap: '0.75rem' },
   successText: { fontSize: '1rem', fontWeight: '600', margin: 0 },
   inviteText: { fontSize: '0.9rem', color: '#555', margin: 0 },
   whatsappButton: {
@@ -161,6 +175,35 @@ const styles = {
     fontSize: '0.95rem',
     cursor: 'pointer',
     color: '#444',
+    width: '100%',
+  },
+  divider: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    margin: '0.25rem 0',
+  },
+  dividerText: {
+    fontSize: '0.8rem',
+    color: '#aaa',
+    margin: '0 auto',
+  },
+  soloButton: {
+    width: '100%',
+    padding: '0.75rem',
+    fontSize: '0.95rem',
+    fontWeight: '600',
+    background: '#f9fafb',
+    color: '#4f46e5',
+    border: '1px solid #e0e7ff',
+    borderRadius: '10px',
+    cursor: 'pointer',
+  },
+  soloNote: {
+    fontSize: '0.78rem',
+    color: '#aaa',
+    textAlign: 'center',
+    margin: 0,
   },
 }
 

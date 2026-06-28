@@ -8,6 +8,7 @@ import Join from './pages/Join'
 import ListPage from './pages/ListPage'
 import FixedCosts from './pages/FixedCosts'
 import SpendPage from './pages/SpendPage'
+import HistoryPage from './pages/HistoryPage'
 import IOSInstallBanner from './components/IOSInstallBanner'
 
 function App() {
@@ -15,8 +16,7 @@ function App() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // ── Strip the # hash that Supabase OAuth adds to the URL ──
-    // This prevents React Router from getting confused by /#
+    // Strip the # hash that Supabase OAuth adds to the URL
     if (window.location.hash) {
       window.history.replaceState(null, '', window.location.pathname || '/')
     }
@@ -33,7 +33,6 @@ function App() {
       setUser(session?.user ?? null)
       if (session?.user) {
         saveProfile(session.user)
-        // After auth state change, make sure we are on home not a stale route
         if (window.location.hash) {
           window.history.replaceState(null, '', '/')
         }
@@ -67,6 +66,7 @@ function App() {
             <Route path="/list/:id"    element={<ListPage />} />
             <Route path="/fixed-costs" element={<FixedCosts />} />
             <Route path="/spend"       element={<SpendPage />} />
+            <Route path="/history"     element={<HistoryPage />} />
             <Route path="*"            element={<Navigate to="/" replace />} />
           </>
         )}
