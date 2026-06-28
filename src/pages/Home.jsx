@@ -3,6 +3,120 @@ import { useNavigate } from 'react-router-dom'
 import PushPermissionModal from '../components/PushPermissionModal'
 import { supabase } from '../lib/supabase'
 
+// ── Animated loading screen ──────────────────────────────────────────────────
+function LoadingScreen() {
+  const [dot, setDot] = useState(0)
+  const tips = [
+    '🛒 Syncing your grocery list...',
+    '💰 Calculating this week\'s spend...',
+    '🏠 Loading your household...',
+    '📊 Crunching the numbers...',
+  ]
+  const [tipIndex, setTipIndex] = useState(0)
+
+  useEffect(() => {
+    const dotTimer = setInterval(() => setDot(d => (d + 1) % 4), 400)
+    const tipTimer = setInterval(() => setTipIndex(i => (i + 1) % tips.length), 1800)
+    return () => { clearInterval(dotTimer); clearInterval(tipTimer) }
+  }, [])
+
+  return (
+    <div style={loadStyles.page}>
+      <div style={loadStyles.card}>
+        {/* Logo */}
+        <div style={loadStyles.logoWrap}>
+          <span style={loadStyles.logoEmoji}>🏠</span>
+        </div>
+        <p style={loadStyles.appName}>Zennix</p>
+        <p style={loadStyles.tagline}>Spend together. Stay calm.</p>
+
+        {/* Animated dots bar */}
+        <div style={loadStyles.dotsRow}>
+          {[0,1,2,3].map(i => (
+            <div
+              key={i}
+              style={{
+                ...loadStyles.dot,
+                background: i === dot ? '#4f46e5' : '#e0e7ff',
+                transform: i === dot ? 'scale(1.4)' : 'scale(1)',
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Rotating tip */}
+        <p style={loadStyles.tip}>{tips[tipIndex]}</p>
+      </div>
+    </div>
+  )
+}
+
+const loadStyles = {
+  page: {
+    minHeight: '100vh',
+    backgroundColor: '#f5f3ff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontFamily: 'sans-serif',
+  },
+  card: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '0.75rem',
+    padding: '2.5rem 2rem',
+    background: '#fff',
+    borderRadius: '24px',
+    boxShadow: '0 8px 40px rgba(79,70,229,0.12)',
+    maxWidth: '320px',
+    width: '90%',
+  },
+  logoWrap: {
+    width: '72px',
+    height: '72px',
+    background: '#ede9fe',
+    borderRadius: '20px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: '0.25rem',
+  },
+  logoEmoji: { fontSize: '2rem' },
+  appName: {
+    fontSize: '1.75rem',
+    fontWeight: '800',
+    color: '#4f46e5',
+    margin: 0,
+    letterSpacing: '-0.02em',
+  },
+  tagline: {
+    fontSize: '0.875rem',
+    color: '#9ca3af',
+    margin: 0,
+  },
+  dotsRow: {
+    display: 'flex',
+    gap: '0.5rem',
+    alignItems: 'center',
+    margin: '0.75rem 0 0.25rem',
+  },
+  dot: {
+    width: '10px',
+    height: '10px',
+    borderRadius: '50%',
+    transition: 'all 0.3s ease',
+  },
+  tip: {
+    fontSize: '0.82rem',
+    color: '#6b7280',
+    margin: 0,
+    textAlign: 'center',
+    minHeight: '1.2rem',
+    transition: 'opacity 0.3s',
+  },
+}
+
 function Home() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
@@ -228,13 +342,7 @@ function Home() {
     return { text: 'Same as last week', color: 'rgba(255,255,255,0.7)' }
   }
 
-  if (loading) {
-    return (
-      <div style={styles.page}>
-        <p style={styles.loadingText}>Setting things up...</p>
-      </div>
-    )
-  }
+  if (loading) return <LoadingScreen />
 
   const change = weekChangeText()
 
@@ -382,7 +490,6 @@ function Home() {
 const styles = {
   page: { minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: 'sans-serif', padding: '1rem' },
   container: { maxWidth: '480px', margin: '0 auto', paddingTop: '2rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' },
-  loadingText: { padding: '2rem', color: '#888', textAlign: 'center' },
   greeting: { marginBottom: '0.5rem' },
   greetingText: { fontSize: '1.5rem', fontWeight: '700', color: '#111', margin: '0 0 0.25rem' },
   subText: { fontSize: '0.9rem', color: '#888', margin: 0 },
