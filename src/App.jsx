@@ -9,14 +9,15 @@ import ListPage from './pages/ListPage'
 import FixedCosts from './pages/FixedCosts'
 import SpendPage from './pages/SpendPage'
 import HistoryPage from './pages/HistoryPage'
+import LandingPage from './pages/LandingPage'
 import IOSInstallBanner from './components/IOSInstallBanner'
+import { ToastContainer } from './components/Toast'
 
 function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Strip the # hash that Supabase OAuth adds to the URL
     if (window.location.hash) {
       window.history.replaceState(null, '', window.location.pathname || '/')
     }
@@ -24,18 +25,14 @@ function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       setLoading(false)
-      if (session?.user) {
-        saveProfile(session.user)
-      }
+      if (session?.user) saveProfile(session.user)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) {
         saveProfile(session.user)
-        if (window.location.hash) {
-          window.history.replaceState(null, '', '/')
-        }
+        if (window.location.hash) window.history.replaceState(null, '', '/')
       }
     })
 
@@ -54,11 +51,17 @@ function App() {
 
   return (
     <BrowserRouter>
+      <ToastContainer />
       <Routes>
-        <Route path="/join" element={<Join />} />
+        {/* Public routes — always accessible */}
+        <Route path="/join"    element={<Join />} />
+        <Route path="/about"   element={<LandingPage />} />
 
         {!user ? (
-          <Route path="*" element={<Login />} />
+          <>
+            <Route path="/"    element={<LandingPage />} />
+            <Route path="*"    element={<Login />} />
+          </>
         ) : (
           <>
             <Route path="/"            element={<Home />} />
