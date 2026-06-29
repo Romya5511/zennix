@@ -1218,29 +1218,21 @@ function ListPage() {
             style={styles.overlay}
             onClick={() => { setShowLibrary(false); setSearch('') }}
           />
-          {/* ── Sheet outer: fixed position, no overflow ── */}
           <div style={styles.bottomSheet}>
 
-            {/* ── Sticky top: handle + header + search — never scrolls away ── */}
-            <div style={styles.sheetSticky}>
-              <div style={styles.handle} />
-              <div style={styles.sheetHeader}>
-                <p style={styles.sheetTitle}>Add items</p>
-                <button
-                  style={styles.closeBtn}
-                  onClick={() => { setShowLibrary(false); setSearch('') }}
-                >✕</button>
-              </div>
-              <input
-                style={styles.searchInput}
-                placeholder="Search or type a new item..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                autoFocus
-              />
+            {/* ── Drag handle ── */}
+            <div style={styles.handle} />
+
+            {/* ── Header ── */}
+            <div style={styles.sheetHeader}>
+              <p style={styles.sheetTitle}>Add items</p>
+              <button
+                style={styles.closeBtn}
+                onClick={() => { setShowLibrary(false); setSearch('') }}
+              >✕</button>
             </div>
 
-            {/* ── Scrollable chips area below search ── */}
+            {/* ── Chips — scrollable, above search ── */}
             <div style={styles.sheetScrollable}>
               {showAddCustomChip && (
                 <button
@@ -1272,6 +1264,17 @@ function ListPage() {
                   )
                 })}
               </div>
+            </div>
+
+            {/* ── Search input pinned at bottom above keyboard ── */}
+            <div style={styles.sheetSearchBar}>
+              <input
+                style={styles.searchInput}
+                placeholder="Search or type a new item..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                autoFocus
+              />
             </div>
 
           </div>
@@ -1601,7 +1604,7 @@ const styles = {
     borderRadius: '20px 20px 0 0',
     boxShadow: '0 -4px 24px rgba(0,0,0,0.15)',
     zIndex: 100,
-    maxHeight: '92vh',
+    maxHeight: '60vh',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
@@ -1614,8 +1617,14 @@ const styles = {
   sheetScrollable: {
     flex: 1,
     overflowY: 'auto',
-    padding: '0 1.25rem 2rem',
+    padding: '0 1.25rem 0.5rem',
     WebkitOverflowScrolling: 'touch',
+  },
+  sheetSearchBar: {
+    flexShrink: 0,
+    padding: '0.75rem 1.25rem 1rem',
+    background: '#fff',
+    borderTop: '1px solid #f3f4f6',
   },
   handle: {
     width: '40px',
@@ -1646,8 +1655,8 @@ const styles = {
     border: '1px solid #e5e7eb',
     borderRadius: '12px',
     boxSizing: 'border-box',
-    marginBottom: '0.75rem',
     outline: 'none',
+    marginBottom: 0,
   },
   addCustomChip: {
     display: 'block',
