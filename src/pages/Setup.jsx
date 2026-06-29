@@ -14,7 +14,15 @@ function Setup() {
     setLoading(true)
     setError(null)
 
-    const { data: { user } } = await supabase.auth.getUser()
+    // ── Explicitly get and set session so JWT is sent with requests ──
+    const { data: { session } } = await supabase.auth.getSession()
+    const user = session?.user
+    if (!user) {
+      setError('Not logged in. Please refresh and try again.')
+      setLoading(false)
+      return
+    }
+    await supabase.auth.setSession(session)
 
     const { data: household, error: householdError } = await supabase
       .from('households')
@@ -38,7 +46,7 @@ function Setup() {
       return
     }
 
-    const joinUrl = `https://zennix.vercel.app/join?invite=${household.id}`
+    const joinUrl = `https://zennix.in/join?invite=${household.id}`
     const message = `Hey! I'm using Zennix to track our shared expenses. Join our household here: ${joinUrl}`
     const waLink = `https://wa.me/?text=${encodeURIComponent(message)}`
     setInviteLink(waLink)
@@ -94,7 +102,7 @@ function Setup() {
               I've sent it — go to home →
             </button>
 
-            {/* ── NEW: Solo user option ── */}
+            {/* Solo user option */}
             <div style={styles.divider}>
               <span style={styles.dividerText}>or</span>
             </div>
