@@ -18,7 +18,7 @@ function Setup() {
 
     const { data: household, error: householdError } = await supabase
       .from('households')
-      .insert({ name: householdName.trim() })
+      .insert({ name: householdName.trim(), created_by: user.id })
       .select()
       .single()
 
