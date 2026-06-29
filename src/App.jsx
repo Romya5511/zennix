@@ -11,7 +11,6 @@ import SpendPage from './pages/SpendPage'
 import HistoryPage from './pages/HistoryPage'
 import LandingPage from './pages/LandingPage'
 import IOSInstallBanner from './components/IOSInstallBanner'
-import { ToastContainer } from './components/Toast'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -51,16 +50,14 @@ function App() {
 
   return (
     <BrowserRouter>
-      <ToastContainer />
       <Routes>
-        {/* Public routes — always accessible */}
-        <Route path="/join"    element={<Join />} />
-        <Route path="/about"   element={<LandingPage />} />
+        <Route path="/join"  element={<Join />} />
+        <Route path="/about" element={<LandingPage />} />
 
         {!user ? (
           <>
-            <Route path="/"    element={<LandingPage />} />
-            <Route path="*"    element={<Login />} />
+            <Route path="/"  element={<LandingPage />} />
+            <Route path="*"  element={<Login />} />
           </>
         ) : (
           <>
