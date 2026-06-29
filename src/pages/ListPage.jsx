@@ -1026,6 +1026,32 @@ function ListPage() {
                       readOnly={listStatus === 'completed'}
                     />
                   </div>
+                  {/* ── NEW: Move back to To Buy button ── */}
+                  {listStatus !== 'completed' && (
+                    <button
+                      style={styles.moveBackBtn}
+                      title="Move back to To Buy"
+                      onClick={async () => {
+                        setListItems(prev =>
+                          prev.map(i => i.id === item.id
+                            ? { ...i, tab_status: 'to_buy', ticked_by: null, ticked_at: null, is_ticked: false }
+                            : i
+                          )
+                        )
+                        await supabase
+                          .from('list_items')
+                          .update({ tab_status: 'to_buy', ticked_by: null, ticked_at: null, is_ticked: false })
+                          .eq('id', item.id)
+                        setPricingInputs(prev => {
+                          const next = { ...prev }
+                          delete next[item.id]
+                          return next
+                        })
+                      }}
+                    >
+                      ↩
+                    </button>
+                  )}
                 </div>
               ))
             )}
@@ -1192,55 +1218,62 @@ function ListPage() {
             style={styles.overlay}
             onClick={() => { setShowLibrary(false); setSearch('') }}
           />
+          {/* ── Sheet outer: fixed position, no overflow ── */}
           <div style={styles.bottomSheet}>
-            <div style={styles.handle} />
-            <div style={styles.sheetHeader}>
-              <p style={styles.sheetTitle}>Add items</p>
-              <button
-                style={styles.closeBtn}
-                onClick={() => { setShowLibrary(false); setSearch('') }}
-              >✕</button>
+
+            {/* ── Sticky top: handle + header + search — never scrolls away ── */}
+            <div style={styles.sheetSticky}>
+              <div style={styles.handle} />
+              <div style={styles.sheetHeader}>
+                <p style={styles.sheetTitle}>Add items</p>
+                <button
+                  style={styles.closeBtn}
+                  onClick={() => { setShowLibrary(false); setSearch('') }}
+                >✕</button>
+              </div>
+              <input
+                style={styles.searchInput}
+                placeholder="Search or type a new item..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                autoFocus
+              />
             </div>
 
-            <input
-              style={styles.searchInput}
-              placeholder="Search or type a new item..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              autoFocus
-            />
-
-            {showAddCustomChip && (
-              <button
-                style={styles.addCustomChip}
-                onClick={addCustomItem}
-                disabled={adding}
-              >
-                + Add "{search.trim()}"
-              </button>
-            )}
-
-            <div style={styles.grid}>
-              {filteredLibrary.map(item => {
-                const inList = toBuyItems.find(
-                  i => i.item_name.toLowerCase() === item.item_name.toLowerCase()
-                )
-                return (
-                  <button
-                    key={item.id}
-                    style={inList
-                      ? { ...styles.chip, ...styles.chipAdded }
-                      : styles.chip
-                    }
-                    onClick={() => {
-                      if (!inList && !adding) addItemFromLibrary(item)
-                    }}
-                  >
-                    {inList ? '✓ ' : ''}{item.item_name}
-                  </button>
-                )
-              })}
+            {/* ── Scrollable chips area below search ── */}
+            <div style={styles.sheetScrollable}>
+              {showAddCustomChip && (
+                <button
+                  style={styles.addCustomChip}
+                  onClick={addCustomItem}
+                  disabled={adding}
+                >
+                  + Add "{search.trim()}"
+                </button>
+              )}
+              <div style={styles.grid}>
+                {filteredLibrary.map(item => {
+                  const inList = toBuyItems.find(
+                    i => i.item_name.toLowerCase() === item.item_name.toLowerCase()
+                  )
+                  return (
+                    <button
+                      key={item.id}
+                      style={inList
+                        ? { ...styles.chip, ...styles.chipAdded }
+                        : styles.chip
+                      }
+                      onClick={() => {
+                        if (!inList && !adding) addItemFromLibrary(item)
+                      }}
+                    >
+                      {inList ? '✓ ' : ''}{item.item_name}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
+
           </div>
         </>
       )}
@@ -1405,6 +1438,17 @@ const styles = {
     outline: 'none',
     textAlign: 'right',
   },
+  moveBackBtn: {
+    background: '#f3f4f6',
+    border: 'none',
+    borderRadius: '8px',
+    padding: '0.35rem 0.5rem',
+    fontSize: '0.9rem',
+    cursor: 'pointer',
+    color: '#6b7280',
+    flexShrink: 0,
+    title: 'Move back to To Buy',
+  },
   totalBar: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -1555,11 +1599,23 @@ const styles = {
     right: 0,
     background: '#fff',
     borderRadius: '20px 20px 0 0',
-    padding: '0.75rem 1.25rem 2rem',
     boxShadow: '0 -4px 24px rgba(0,0,0,0.15)',
     zIndex: 100,
-    maxHeight: '75vh',
+    maxHeight: '92vh',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  sheetSticky: {
+    flexShrink: 0,
+    padding: '0.75rem 1.25rem 0',
+    background: '#fff',
+  },
+  sheetScrollable: {
+    flex: 1,
     overflowY: 'auto',
+    padding: '0 1.25rem 2rem',
+    WebkitOverflowScrolling: 'touch',
   },
   handle: {
     width: '40px',
