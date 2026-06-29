@@ -17,21 +17,26 @@ function App() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (window.location.hash) {
-      window.history.replaceState(null, '', window.location.pathname || '/')
-    }
-
+    // Let Supabase process the hash first, then clean URL
+    // Do NOT strip hash immediately — Supabase needs it to establish session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       setLoading(false)
       if (session?.user) saveProfile(session.user)
+      // Only strip hash after session is established
+      if (window.location.hash && !window.location.hash.includes('access_token')) {
+        window.history.replaceState(null, '', window.location.pathname || '/')
+      }
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) {
         saveProfile(session.user)
-        if (window.location.hash) window.history.replaceState(null, '', '/')
+        // Clean URL after auth is complete
+        if (window.location.hash && !window.location.hash.includes('access_token')) {
+          window.history.replaceState(null, '', '/')
+        }
       }
     })
 
