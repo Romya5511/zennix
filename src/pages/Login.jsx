@@ -4,8 +4,8 @@ function Login() {
   const handleGoogleSignIn = async () => {
     const pendingInvite = localStorage.getItem('zennix_invite_id')
     const redirectTo = pendingInvite
-      ? `${window.location.origin}/join`
-      : `${window.location.origin}/`
+      ? `https://zennix.in/join`
+      : `https://zennix.in/`
 
     await supabase.auth.signInWithOAuth({
       provider: 'google',
