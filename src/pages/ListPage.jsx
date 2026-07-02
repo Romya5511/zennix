@@ -283,6 +283,29 @@ const listLoadStyles = {
   },
 }
 
+// ── Helper: recompute the true total from list_items and write it to
+//    grocery_lists.total_amount. Called unconditionally (active OR
+//    completed) any time a price is entered or a Done row is edited.
+//    FIX D — closes the "stale total after post-completion edit" bug.
+async function recalcListTotal(listId) {
+  if (!listId) return 0
+  const { data: allItems } = await supabase
+    .from('list_items')
+    .select('price_entered')
+    .eq('list_id', listId)
+
+  const total = (allItems || []).reduce(
+    (sum, i) => sum + (parseFloat(i.price_entered) || 0), 0
+  )
+
+  await supabase
+    .from('grocery_lists')
+    .update({ total_amount: total })
+    .eq('id', listId)
+
+  return total
+}
+
 function ListPage() {
   const navigate = useNavigate()
   const { id } = useParams()
@@ -312,14 +335,29 @@ function ListPage() {
   const userIdRef = useRef(null)
   const channelRef = useRef(null)
 
+  // FIX G — re-run setup whenever the route's :id changes, and reset all
+  // list-scoped state first. Previously this only ran once on mount ([]),
+  // so leftover doneEdits/pricingInputs/etc. from a prior list could in
+  // theory bleed into a newly-opened list in the same session.
   useEffect(() => {
+    setListItems([])
+    setDoneEdits({})
+    setPricingInputs({})
+    setDupWarning('')
+    setSwipedItemId(null)
+    setListStatus('active')
+    setLoading(true)
+    setListId(isNew ? null : id)
+    listIdRef.current = isNew ? null : id
+
     setup()
     return () => {
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current)
       }
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
 
   useEffect(() => {
     listIdRef.current = listId
@@ -344,8 +382,8 @@ function ListPage() {
         }
       )
       .on(
-        // ── NEW: if other member completes the list while you have it open,
-        //    your listStatus updates in real time without needing a refresh ──
+        // if other member completes the list while you have it open,
+        // your listStatus updates in real time without needing a refresh
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'grocery_lists', filter: `id=eq.${lid}` },
         (payload) => {
@@ -399,7 +437,7 @@ function ListPage() {
         .order('display_order', { ascending: true })
       setListItems(items || [])
 
-      // ── UPDATED: also fetch notification_seen_by so we can mark this user as seen ──
+      // also fetch notification_seen_by so we can mark this user as seen
       const { data: listRow } = await supabase
         .from('grocery_lists')
         .select('status, notification_seen_by')
@@ -409,7 +447,7 @@ function ListPage() {
       if (listRow) {
         setListStatus(listRow.status)
 
-        // ── NEW: mark this list as seen by current user ──
+        // mark this list as seen by current user
         const seenBy = listRow.notification_seen_by || []
         if (!seenBy.includes(user.id)) {
           await supabase
@@ -489,14 +527,14 @@ function ListPage() {
       }
     }
 
-    // ── UPDATED: creator is auto-marked as seen when list is created ──
+    // creator is auto-marked as seen when list is created
     const { data: newList, error } = await supabase
       .from('grocery_lists')
       .insert({
         household_id: hid,
         created_by: uid,
         status: 'active',
-        notification_seen_by: [uid],  // creator has already "seen" it
+        notification_seen_by: [uid],
       })
       .select()
       .single()
@@ -720,9 +758,13 @@ function ListPage() {
       })
       .eq('id', item.id)
 
+    // FIX A — upsert keyed on list_item_id instead of a blind insert.
+    // Combined with the DB unique constraint (see migration SQL), this makes
+    // it structurally impossible to get two household_bucket rows for the
+    // same item, no matter how many times enterPrice() runs for it.
     await supabase
       .from('household_bucket')
-      .insert({
+      .upsert({
         household_id: hid,
         source_type: 'grocery_list',
         source_id: currentListId,
@@ -732,9 +774,18 @@ function ListPage() {
         amount: price,
         bought_by: item.ticked_by,
         bought_at: now,
-      })
+      }, { onConflict: 'list_item_id' })
 
-    if (Object.keys(doneEdits).length > 0) return
+    // FIX C — the old code had:
+    //   if (Object.keys(doneEdits).length > 0) return
+    // which silently skipped the completion check (and therefore could
+    // permanently block auto-complete) if any Done row was mid-edit,
+    // including a *stuck* edit nobody ever saved or cancelled.
+    // We now always evaluate completion. The thing that guard was actually
+    // protecting against — a stale total_amount — is now handled by
+    // recalcListTotal(), which runs on every relevant save (see FIX D)
+    // regardless of completion state, so it's safe to check completion
+    // unconditionally here.
 
     const { count: totalCount } = await supabase
       .from('list_items')
@@ -748,16 +799,15 @@ function ListPage() {
       .eq('tab_status', 'done')
 
     if (totalCount > 0 && totalCount === doneCount) {
-      const { data: allItems } = await supabase
-        .from('list_items')
-        .select('price_entered')
-        .eq('list_id', currentListId)
+      const total = await recalcListTotal(currentListId)
 
-      const total = (allItems || []).reduce(
-        (sum, i) => sum + (parseFloat(i.price_entered) || 0), 0
-      )
-
-      await supabase
+      // FIX E — conditional update + check affected rows. If two devices
+      // both hit this branch near-simultaneously, only the first one to
+      // reach Postgres actually flips status -> completed (the second
+      // one's .eq('status','active') filter matches zero rows). We only
+      // send the celebratory push if OUR update was the one that "won",
+      // so you never get two "List complete!" notifications for one list.
+      const { data: completedRows } = await supabase
         .from('grocery_lists')
         .update({
           status: 'completed',
@@ -765,19 +815,28 @@ function ListPage() {
           total_amount: total,
         })
         .eq('id', currentListId)
+        .eq('status', 'active')
+        .select('id')
 
-      setListStatus('completed')
+      if (completedRows && completedRows.length > 0) {
+        setListStatus('completed')
 
-      const { data: completionProfile } = await supabase
-        .from('profiles').select('full_name').eq('id', uid).maybeSingle()
-      const completionName = completionProfile?.full_name?.split(' ')[0] || 'Someone'
-      await sendPush({
-        householdId: hid,
-        senderId: uid,
-        title: '🎉 List complete!',
-        body: `${completionName} finished the list. Total: ₹${total.toFixed(0)}.`,
-        url: `/list/${currentListId}?tab=done`,
-      })
+        const { data: completionProfile } = await supabase
+          .from('profiles').select('full_name').eq('id', uid).maybeSingle()
+        const completionName = completionProfile?.full_name?.split(' ')[0] || 'Someone'
+        await sendPush({
+          householdId: hid,
+          senderId: uid,
+          title: '🎉 List complete!',
+          body: `${completionName} finished the list. Total: ₹${total.toFixed(0)}.`,
+          url: `/list/${currentListId}?tab=done`,
+        })
+      }
+    } else {
+      // Not complete yet, but a price still just changed — keep the
+      // stored total in sync so History/Spend never show a stale number
+      // while the list is still active.
+      await recalcListTotal(currentListId)
     }
   }
 
@@ -812,8 +871,23 @@ function ListPage() {
       )
     }
 
+    // FIX D — recompute and persist the true total every time a Done row
+    // is corrected, whether the list is active or already completed.
+    // This is what makes it safe to remove the old doneEdits guard in
+    // enterPrice(): the total can never go stale, so there's nothing left
+    // for that guard to protect against.
+    await recalcListTotal(listIdRef.current)
+
     setDoneEdits({})
     setSavingDoneEdits(false)
+  }
+
+  // FIX F — explicit Cancel for the Done tab, so an accidental tap on a
+  // row can be backed out of instead of silently lingering in doneEdits
+  // forever (which was the direct cause of the "list stuck active" bug
+  // reported today).
+  function cancelDoneEdits() {
+    setDoneEdits({})
   }
 
   async function savePricingItems() {
@@ -1026,27 +1100,61 @@ function ListPage() {
                       readOnly={listStatus === 'completed'}
                     />
                   </div>
-                  {/* ── NEW: Move back to To Buy button ── */}
+                  {/* Move back to To Buy button */}
                   {listStatus !== 'completed' && (
                     <button
                       style={styles.moveBackBtn}
                       title="Move back to To Buy"
                       onClick={async () => {
+                        // FIX B — a real "undo." Previously this only reset
+                        // tab_status/ticked_by/ticked_at/is_ticked, leaving
+                        // any already-entered price (and its household_bucket
+                        // row) behind. If the item was priced again later,
+                        // that created a second household_bucket row for the
+                        // same item — the exact cause of the ₹20→₹40
+                        // double-counting bug reported today. Now, moving
+                        // back fully clears the price fields AND removes the
+                        // household_bucket row, so the item looks exactly
+                        // like it was never priced.
                         setListItems(prev =>
                           prev.map(i => i.id === item.id
-                            ? { ...i, tab_status: 'to_buy', ticked_by: null, ticked_at: null, is_ticked: false }
+                            ? {
+                                ...i,
+                                tab_status: 'to_buy',
+                                ticked_by: null,
+                                ticked_at: null,
+                                is_ticked: false,
+                                price_entered: null,
+                                price_entered_by: null,
+                                price_entered_at: null,
+                              }
                             : i
                           )
                         )
                         await supabase
                           .from('list_items')
-                          .update({ tab_status: 'to_buy', ticked_by: null, ticked_at: null, is_ticked: false })
+                          .update({
+                            tab_status: 'to_buy',
+                            ticked_by: null,
+                            ticked_at: null,
+                            is_ticked: false,
+                            price_entered: null,
+                            price_entered_by: null,
+                            price_entered_at: null,
+                          })
                           .eq('id', item.id)
+                        await supabase
+                          .from('household_bucket')
+                          .delete()
+                          .eq('list_item_id', item.id)
                         setPricingInputs(prev => {
                           const next = { ...prev }
                           delete next[item.id]
                           return next
                         })
+                        // Total may have changed if this item had already
+                        // been priced once before being moved back.
+                        await recalcListTotal(listIdRef.current)
                       }}
                     >
                       ↩
@@ -1188,11 +1296,20 @@ function ListPage() {
         </div>
       )}
 
-      {/* Save bar — Done tab */}
+      {/* Save bar — Done tab. FIX F: added an explicit Cancel button
+          alongside Save, so a stray tap can be backed out of cleanly
+          instead of silently sitting in doneEdits forever. */}
       {activeTab === 'done' && Object.keys(doneEdits).length > 0 && (
-        <div style={styles.saveBar}>
+        <div style={styles.saveBarRow}>
           <button
-            style={savingDoneEdits ? { ...styles.saveBtn, opacity: 0.6 } : styles.saveBtn}
+            style={styles.cancelBtn}
+            onClick={cancelDoneEdits}
+            disabled={savingDoneEdits}
+          >
+            Cancel
+          </button>
+          <button
+            style={savingDoneEdits ? { ...styles.saveBtn, opacity: 0.6, flex: 1 } : { ...styles.saveBtn, flex: 1 }}
             onClick={saveDoneEdits}
             disabled={savingDoneEdits}
           >
@@ -1559,6 +1676,31 @@ const styles = {
     padding: '0.75rem 1.25rem',
     boxShadow: '0 -4px 16px rgba(0,0,0,0.06)',
     zIndex: 40,
+  },
+  // FIX F — new style: a two-button row (Cancel + Save) for the Done tab,
+  // replacing the single full-width Save button used there before.
+  saveBarRow: {
+    position: 'fixed',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    background: '#fff',
+    borderTop: '1px solid #f3f4f6',
+    padding: '0.75rem 1.25rem',
+    boxShadow: '0 -4px 16px rgba(0,0,0,0.06)',
+    zIndex: 40,
+    display: 'flex',
+    gap: '0.75rem',
+  },
+  cancelBtn: {
+    padding: '0.85rem 1.25rem',
+    fontSize: '1rem',
+    fontWeight: '700',
+    background: '#f3f4f6',
+    color: '#374151',
+    border: 'none',
+    borderRadius: '12px',
+    cursor: 'pointer',
   },
   saveBtn: {
     width: '100%',
