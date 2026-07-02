@@ -306,6 +306,55 @@ async function recalcListTotal(listId) {
   return total
 }
 
+// FIX H — shared completion check, called from BOTH enterPrice() (a fresh
+// Pricing-tab price entry) AND saveDoneEdits() (correcting an already-Done
+// item). Previously the completion check only lived inside enterPrice(),
+// so a list where every item had already reached "done" — but which never
+// got marked completed due to the old doneEdits guard bug — had no way to
+// self-heal. Editing a Done row and saving now also re-checks completion,
+// so a stuck list fixes itself the next time anyone touches it, instead of
+// needing a manual SQL update.
+//
+// Returns { completed: boolean, total: number } so callers can decide
+// whether to fire the "🎉 List complete!" push notification.
+async function checkAndCompleteList(listId, uid) {
+  if (!listId) return { completed: false, total: 0 }
+
+  const { count: totalCount } = await supabase
+    .from('list_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('list_id', listId)
+
+  const { count: doneCount } = await supabase
+    .from('list_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('list_id', listId)
+    .eq('tab_status', 'done')
+
+  const total = await recalcListTotal(listId)
+
+  if (!(totalCount > 0 && totalCount === doneCount)) {
+    return { completed: false, total }
+  }
+
+  const now = new Date().toISOString()
+
+  // Conditional on status = 'active' so this is safe to call from
+  // multiple places / multiple devices without double-firing.
+  const { data: completedRows } = await supabase
+    .from('grocery_lists')
+    .update({
+      status: 'completed',
+      completed_at: now,
+      total_amount: total,
+    })
+    .eq('id', listId)
+    .eq('status', 'active')
+    .select('id')
+
+  return { completed: !!(completedRows && completedRows.length > 0), total }
+}
+
 function ListPage() {
   const navigate = useNavigate()
   const { id } = useParams()
@@ -781,62 +830,24 @@ function ListPage() {
     // which silently skipped the completion check (and therefore could
     // permanently block auto-complete) if any Done row was mid-edit,
     // including a *stuck* edit nobody ever saved or cancelled.
-    // We now always evaluate completion. The thing that guard was actually
-    // protecting against — a stale total_amount — is now handled by
-    // recalcListTotal(), which runs on every relevant save (see FIX D)
-    // regardless of completion state, so it's safe to check completion
-    // unconditionally here.
+    // We now always evaluate completion, via the shared checkAndCompleteList
+    // helper (FIX H) — same logic used by saveDoneEdits(), so a list can
+    // self-heal from either a fresh price entry OR a Done-tab correction.
+    const { completed, total } = await checkAndCompleteList(currentListId, uid)
 
-    const { count: totalCount } = await supabase
-      .from('list_items')
-      .select('id', { count: 'exact', head: true })
-      .eq('list_id', currentListId)
+    if (completed) {
+      setListStatus('completed')
 
-    const { count: doneCount } = await supabase
-      .from('list_items')
-      .select('id', { count: 'exact', head: true })
-      .eq('list_id', currentListId)
-      .eq('tab_status', 'done')
-
-    if (totalCount > 0 && totalCount === doneCount) {
-      const total = await recalcListTotal(currentListId)
-
-      // FIX E — conditional update + check affected rows. If two devices
-      // both hit this branch near-simultaneously, only the first one to
-      // reach Postgres actually flips status -> completed (the second
-      // one's .eq('status','active') filter matches zero rows). We only
-      // send the celebratory push if OUR update was the one that "won",
-      // so you never get two "List complete!" notifications for one list.
-      const { data: completedRows } = await supabase
-        .from('grocery_lists')
-        .update({
-          status: 'completed',
-          completed_at: now,
-          total_amount: total,
-        })
-        .eq('id', currentListId)
-        .eq('status', 'active')
-        .select('id')
-
-      if (completedRows && completedRows.length > 0) {
-        setListStatus('completed')
-
-        const { data: completionProfile } = await supabase
-          .from('profiles').select('full_name').eq('id', uid).maybeSingle()
-        const completionName = completionProfile?.full_name?.split(' ')[0] || 'Someone'
-        await sendPush({
-          householdId: hid,
-          senderId: uid,
-          title: '🎉 List complete!',
-          body: `${completionName} finished the list. Total: ₹${total.toFixed(0)}.`,
-          url: `/list/${currentListId}?tab=done`,
-        })
-      }
-    } else {
-      // Not complete yet, but a price still just changed — keep the
-      // stored total in sync so History/Spend never show a stale number
-      // while the list is still active.
-      await recalcListTotal(currentListId)
+      const { data: completionProfile } = await supabase
+        .from('profiles').select('full_name').eq('id', uid).maybeSingle()
+      const completionName = completionProfile?.full_name?.split(' ')[0] || 'Someone'
+      await sendPush({
+        householdId: hid,
+        senderId: uid,
+        title: '🎉 List complete!',
+        body: `${completionName} finished the list. Total: ₹${total.toFixed(0)}.`,
+        url: `/list/${currentListId}?tab=done`,
+      })
     }
   }
 
@@ -871,12 +882,31 @@ function ListPage() {
       )
     }
 
-    // FIX D — recompute and persist the true total every time a Done row
-    // is corrected, whether the list is active or already completed.
-    // This is what makes it safe to remove the old doneEdits guard in
-    // enterPrice(): the total can never go stale, so there's nothing left
-    // for that guard to protect against.
-    await recalcListTotal(listIdRef.current)
+    // FIX D + FIX H — re-check completion (which also recalculates the
+    // total internally) every time a Done row is corrected, whether the
+    // list is currently active or already completed. This is the
+    // self-healing path: a list that got stuck "active" with all items
+    // already done (e.g. from the old bug, or any future edge case we
+    // haven't thought of) will correct itself the next time anyone edits
+    // and saves a Done-tab item — no manual SQL required.
+    const uid = userIdRef.current
+    const hid = householdIdRef.current
+    const currentListId = listIdRef.current
+    const { completed, total } = await checkAndCompleteList(currentListId, uid)
+
+    if (completed) {
+      setListStatus('completed')
+      const { data: completionProfile } = await supabase
+        .from('profiles').select('full_name').eq('id', uid).maybeSingle()
+      const completionName = completionProfile?.full_name?.split(' ')[0] || 'Someone'
+      await sendPush({
+        householdId: hid,
+        senderId: uid,
+        title: '🎉 List complete!',
+        body: `${completionName} finished the list. Total: ₹${total.toFixed(0)}.`,
+        url: `/list/${currentListId}?tab=done`,
+      })
+    }
 
     setDoneEdits({})
     setSavingDoneEdits(false)
