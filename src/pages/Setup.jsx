@@ -68,7 +68,7 @@ function Setup() {
             <input
               style={styles.input}
               type="text"
-              placeholder="e.g. Romya & Sonali's Home"
+              placeholder="e.g. Naina & Bunny's Home"
               value={householdName}
               onChange={(e) => setHouseholdName(e.target.value)}
               disabled={loading}

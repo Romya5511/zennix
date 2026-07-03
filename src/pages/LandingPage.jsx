@@ -58,7 +58,7 @@ function LandingPage() {
             <div style={styles.mockupScreen}>
               {/* Mini home screen preview */}
               <div style={styles.mockupHeader}>
-                <span style={styles.mockupGreeting}>Good morning, Romya 👋</span>
+                <span style={styles.mockupGreeting}>Good morning, Sachin 👋</span>
                 <span style={styles.mockupSub}>What needs to be done today?</span>
               </div>
               <div style={styles.mockupCard}>
