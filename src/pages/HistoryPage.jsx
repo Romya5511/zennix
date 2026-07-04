@@ -12,6 +12,17 @@ const INCOME_BRACKETS = [
   { value: 'above_2l', label: 'Above ₹2,00,000' },
 ]
 
+// Same category → emoji/color mapping used in QuickLogGrid.jsx, kept in
+// sync so History renders Quick Log entries consistently with Home.
+const QUICK_LOG_STYLE = {
+  'Food Delivery': { emoji: '🍔', accent: '#E85D3E' },
+  'Transport': { emoji: '🚕', accent: '#1E9E8F' },
+  'Online Shopping': { emoji: '🛍️', accent: '#7C4FE0' },
+  'Fruits & Vegetables': { emoji: '🥦', accent: '#3F9142' },
+  'Entertainment': { emoji: '🎬', accent: '#C98A0A' },
+  'Medical': { emoji: '💊', accent: '#D14C79' },
+}
+
 // ── Month name helper ────────────────────────────────────────────────────────
 function monthLabel(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-IN', {
@@ -159,14 +170,39 @@ function ListCard({ list, profiles }) {
   )
 }
 
+// ── Quick Log entry card ─────────────────────────────────────────────────────
+// NEW — Day 16: standalone Quick Log rows aren't part of any grocery_lists
+// row, so they get their own simple card instead of reusing ListCard.
+function QuickLogCard({ entry, profiles }) {
+  const style = QUICK_LOG_STYLE[entry.category] || { emoji: '💸', accent: '#6b7280' }
+  return (
+    <div style={cardStyles.quickLogCard}>
+      <span style={{ ...cardStyles.quickLogEmoji, background: `${style.accent}1A` }}>
+        {style.emoji}
+      </span>
+      <div style={cardStyles.quickLogInfo}>
+        <span style={cardStyles.quickLogCategory}>{entry.category}</span>
+        <span style={cardStyles.quickLogMeta}>
+          {formatDate(entry.bought_at)} · {getFirstName(profiles[entry.bought_by])}
+        </span>
+      </div>
+      <span style={{ ...cardStyles.quickLogAmount, color: style.accent }}>
+        ₹{parseFloat(entry.amount || 0).toFixed(2)}
+      </span>
+    </div>
+  )
+}
+
 // ── Main HistoryPage ─────────────────────────────────────────────────────────
 function HistoryPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [lists, setLists] = useState([])
+  const [quickLogs, setQuickLogs] = useState([])
   const [profiles, setProfiles] = useState({})
   const [monthlyGrocery, setMonthlyGrocery] = useState(0)
   const [monthlyFixed, setMonthlyFixed] = useState(0)
+  const [monthlyQuickLog, setMonthlyQuickLog] = useState(0)
   const [incomeBracket, setIncomeBracket] = useState(null)
   const [showBracketModal, setShowBracketModal] = useState(false)
   const [householdId, setHouseholdId] = useState(null)
@@ -237,6 +273,16 @@ function HistoryPage() {
     )
     setLists(listsWithCount)
 
+    // NEW — Day 16: load Quick Log entries (standalone household_bucket
+    // rows, not attached to any grocery_lists row) newest first.
+    const { data: quickLogRows } = await supabase
+      .from('household_bucket')
+      .select('id, category, amount, bought_by, bought_at')
+      .eq('household_id', hid)
+      .eq('source_type', 'quick_log')
+      .order('bought_at', { ascending: false })
+    setQuickLogs(quickLogRows || [])
+
     // Monthly summary — current month
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
@@ -255,9 +301,15 @@ function HistoryPage() {
     const fixed = (monthBucket || [])
       .filter(e => e.source_type === 'fixed_cost')
       .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+    // NEW — Day 16: Quick Log's share of this month's total, so the
+    // month card total doesn't silently under-count Quick Log spend.
+    const quickLog = (monthBucket || [])
+      .filter(e => e.source_type === 'quick_log')
+      .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
 
     setMonthlyGrocery(grocery)
     setMonthlyFixed(fixed)
+    setMonthlyQuickLog(quickLog)
     setLoading(false)
   }
 
@@ -283,7 +335,9 @@ function HistoryPage() {
     above_2l: 250000,
   }
 
-  const monthTotal = monthlyGrocery + monthlyFixed
+  // NEW — Day 16: monthTotal now includes Quick Log spend, not just
+  // Grocery + Fixed, so the income-comparison % stays accurate.
+  const monthTotal = monthlyGrocery + monthlyFixed + monthlyQuickLog
   const midpoint = incomeBracket ? bracketMidpoints[incomeBracket] : null
   const spendPct = midpoint ? Math.round((monthTotal / midpoint) * 100) : null
 
@@ -316,6 +370,14 @@ function HistoryPage() {
               <span style={{ ...styles.monthItemDot, background: '#f59e0b' }} />
               <span style={styles.monthItemText}>Fixed</span>
               <span style={styles.monthItemAmt}>₹{monthlyFixed.toFixed(0)}</span>
+            </div>
+            {/* NEW — Day 16: third dot for Quick Log's aggregate share.
+                Full per-category breakdown (Food Delivery, Transport, etc.)
+                lives on the Spend tab, not here — this is just the total. */}
+            <div style={styles.monthItem}>
+              <span style={{ ...styles.monthItemDot, background: '#ec4899' }} />
+              <span style={styles.monthItemText}>Quick Log</span>
+              <span style={styles.monthItemAmt}>₹{monthlyQuickLog.toFixed(0)}</span>
             </div>
           </div>
 
@@ -366,6 +428,22 @@ function HistoryPage() {
           ))
         )}
 
+        {/* NEW — Day 16: Quick Log entries, shown as their own section
+            since each is a standalone spend, not part of a list. */}
+        <p style={styles.sectionTitle}>Quick Logs</p>
+
+        {quickLogs.length === 0 ? (
+          <div style={styles.emptyCard}>
+            <p style={styles.emptyIcon}>⚡</p>
+            <p style={styles.emptyText}>No quick logs yet.</p>
+            <p style={styles.emptySubText}>Log a Food Delivery, Transport, or other spend from Home.</p>
+          </div>
+        ) : (
+          quickLogs.map(entry => (
+            <QuickLogCard key={entry.id} entry={entry} profiles={profiles} />
+          ))
+        )}
+
       </div>
 
       {/* Income bracket modal */}
@@ -406,7 +484,7 @@ const styles = {
   },
   monthLabel: { fontSize: '0.8rem', fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 },
   monthTotal: { fontSize: '2rem', fontWeight: '800', color: '#111', margin: 0 },
-  monthBreakdown: { display: 'flex', gap: '1.25rem', marginTop: '0.25rem' },
+  monthBreakdown: { display: 'flex', gap: '1.25rem', marginTop: '0.25rem', flexWrap: 'wrap' },
   monthItem: { display: 'flex', alignItems: 'center', gap: '0.4rem' },
   monthItemDot: { width: '8px', height: '8px', borderRadius: '50%', background: '#4f46e5', flexShrink: 0 },
   monthItemText: { fontSize: '0.8rem', color: '#6b7280' },
@@ -445,6 +523,31 @@ const cardStyles = {
   itemName: { flex: 1, fontSize: '0.85rem', color: '#111' },
   itemMeta: { fontSize: '0.75rem', color: '#9ca3af' },
   itemPrice: { fontSize: '0.85rem', fontWeight: '600', color: '#16a34a', flexShrink: 0 },
+
+  // NEW — Day 16: Quick Log card styles
+  quickLogCard: {
+    background: '#fff',
+    borderRadius: '16px',
+    padding: '0.85rem 1.1rem',
+    boxShadow: '0 2px 12px rgba(0,0,0,0.07)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+  },
+  quickLogEmoji: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '1.1rem',
+    flexShrink: 0,
+  },
+  quickLogInfo: { flex: 1, display: 'flex', flexDirection: 'column', gap: '0.15rem' },
+  quickLogCategory: { fontSize: '0.9rem', fontWeight: '600', color: '#111' },
+  quickLogMeta: { fontSize: '0.75rem', color: '#9ca3af' },
+  quickLogAmount: { fontSize: '1rem', fontWeight: '800', flexShrink: 0 },
 }
 
 const modalStyles = {

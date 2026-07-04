@@ -26,6 +26,7 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
   const [date, setDate] = useState(todayStr())
   const [saving, setSaving] = useState(false)
   const [justSaved, setJustSaved] = useState(null) // category key that just saved, for pulse
+  const [saveError, setSaveError] = useState('')
 
   function openTile(key) {
     if (saving) return
@@ -34,11 +35,13 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
       setExpanded(null)
       setAmount('')
       setDate(todayStr())
+      setSaveError('')
       return
     }
     setExpanded(key)
     setAmount('')
     setDate(todayStr())
+    setSaveError('')
   }
 
   function cancel() {
@@ -46,12 +49,14 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
     setExpanded(null)
     setAmount('')
     setDate(todayStr())
+    setSaveError('')
   }
 
   async function save() {
     const parsed = parseFloat(amount)
     if (!amount || isNaN(parsed) || parsed <= 0 || saving) return
     setSaving(true)
+    setSaveError('')
 
     // Build a timestamp for the chosen date. Selected date is a plain
     // YYYY-MM-DD; if it's today, use the exact current time. If backdated,
@@ -69,6 +74,7 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
         household_id: householdId,
         source_type: 'quick_log',
         category: expanded,
+        item_name: expanded,
         amount: parsed,
         bought_by: userId,
         bought_at: boughtAt,
@@ -76,16 +82,23 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
 
     setSaving(false)
 
-    if (!error) {
-      setJustSaved(expanded)
-      setTimeout(() => {
-        setJustSaved(null)
-        setExpanded(null)
-        setAmount('')
-        setDate(todayStr())
-      }, 650)
-      if (onSaved) onSaved()
+    if (error) {
+      // Surface the real reason instead of failing silently — this is
+      // what let bug #6 (not writing to DB) go unnoticed with no visible
+      // feedback to the user.
+      console.error('Quick Log save failed:', error)
+      setSaveError(error.message || 'Could not save. Please try again.')
+      return
     }
+
+    setJustSaved(expanded)
+    setTimeout(() => {
+      setJustSaved(null)
+      setExpanded(null)
+      setAmount('')
+      setDate(todayStr())
+    }, 650)
+    if (onSaved) onSaved()
   }
 
   return (
@@ -94,7 +107,6 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
       <div style={styles.grid}>
         {CATEGORIES.map(cat => {
           const isOpen = expanded === cat.key
-          const isFaded = expanded !== null && !isOpen
           const isPulsing = justSaved === cat.key
           return (
             <button
@@ -102,10 +114,8 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
               style={{
                 ...styles.tile,
                 background: cat.bg,
-                opacity: isFaded ? 0.35 : 1,
                 transform: isOpen ? 'scale(1.04)' : 'scale(1)',
                 boxShadow: isOpen ? `0 0 0 2px ${cat.accent}` : styles.tile.boxShadow,
-                pointerEvents: saving ? 'none' : 'auto',
               }}
               onClick={() => openTile(cat.key)}
             >
@@ -123,61 +133,66 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
       </div>
 
       {expanded && (
-        <div style={styles.form}>
-          <div style={styles.formHeader}>
-            <span style={styles.formTitle}>
-              {CATEGORIES.find(c => c.key === expanded)?.emoji} {expanded}
-            </span>
-            <button style={styles.closeBtn} onClick={cancel} disabled={saving}>✕</button>
-          </div>
+        <>
+          <div style={styles.overlay} onClick={cancel} />
+          <div style={styles.modal}>
+            <div style={styles.formHeader}>
+              <span style={styles.formTitle}>
+                {CATEGORIES.find(c => c.key === expanded)?.emoji} {expanded}
+              </span>
+              <button style={styles.closeBtn} onClick={cancel} disabled={saving}>✕</button>
+            </div>
 
-          <div style={styles.amountRow}>
-            <span style={styles.rupee}>₹</span>
-            <input
-              style={styles.amountInput}
-              type="number"
-              min="0"
-              placeholder="0"
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
-              autoFocus
-              disabled={saving}
-            />
-          </div>
-
-          <div style={styles.chipRow}>
-            {QUICK_AMOUNTS.map(val => (
-              <button
-                key={val}
-                style={styles.chip}
-                onClick={() => setAmount(String(val))}
+            <div style={styles.amountRow}>
+              <span style={styles.rupee}>₹</span>
+              <input
+                style={styles.amountInput}
+                type="number"
+                min="0"
+                placeholder="0"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                autoFocus
                 disabled={saving}
-              >
-                ₹{val}
-              </button>
-            ))}
-          </div>
+              />
+            </div>
 
-          <div style={styles.dateRow}>
-            <span style={styles.dateLabel}>Date</span>
-            <input
-              style={styles.dateInput}
-              type="date"
-              value={date}
-              max={todayStr()}
-              onChange={e => setDate(e.target.value)}
-              disabled={saving}
-            />
-          </div>
+            <div style={styles.chipRow}>
+              {QUICK_AMOUNTS.map(val => (
+                <button
+                  key={val}
+                  style={styles.chip}
+                  onClick={() => setAmount(String(val))}
+                  disabled={saving}
+                >
+                  ₹{val}
+                </button>
+              ))}
+            </div>
 
-          <button
-            style={saving || !amount ? { ...styles.saveBtn, opacity: 0.6 } : styles.saveBtn}
-            onClick={save}
-            disabled={saving || !amount}
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
+            <div style={styles.dateRow}>
+              <span style={styles.dateLabel}>Date</span>
+              <input
+                style={styles.dateInput}
+                type="date"
+                value={date}
+                max={todayStr()}
+                onChange={e => setDate(e.target.value)}
+                disabled={saving}
+              />
+            </div>
+
+            {saveError && <p style={styles.errorText}>{saveError}</p>}
+
+            <button
+              style={saving || !amount ? { ...styles.saveBtn, opacity: 0.6 } : styles.saveBtn}
+              onClick={save}
+              disabled={saving || !amount}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </>
       )}
     </div>
   )
@@ -216,7 +231,34 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '0.85rem',
-    animation: 'none',
+  },
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.45)',
+    zIndex: 90,
+  },
+  modal: {
+    position: 'fixed',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    width: '90%',
+    maxWidth: '360px',
+    background: '#fff',
+    borderRadius: '20px',
+    padding: '1.25rem',
+    boxShadow: '0 8px 40px rgba(0,0,0,0.2)',
+    zIndex: 100,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.9rem',
+  },
+  errorText: {
+    fontSize: '0.8rem',
+    color: '#dc2626',
+    margin: 0,
+    textAlign: 'center',
   },
   formHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   formTitle: { fontSize: '0.95rem', fontWeight: '700', color: '#111' },
