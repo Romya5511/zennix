@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { playTickSound, playSettleSound } from '../lib/soundEngine'
 
 // One unified "jiggle then settle" number effect, used for BOTH:
 //  (a) the casino-style reveal when a page first opens, and
@@ -34,6 +35,7 @@ function SettlingNumber({ value, prefix = '₹', decimals = 2, style }) {
       const shrink = 1 - tick / jitterTicks
       const jittered = Math.max(0, target + (Math.random() * 2 - 1) * range * shrink)
       setDisplay(jittered)
+      playTickSound()
 
       if (tick >= jitterTicks) {
         clearInterval(intervalRef.current)
@@ -49,6 +51,7 @@ function SettlingNumber({ value, prefix = '₹', decimals = 2, style }) {
             rafRef.current = requestAnimationFrame(animateSettle)
           } else {
             setDisplay(target)
+            playSettleSound()
           }
         }
         rafRef.current = requestAnimationFrame(animateSettle)

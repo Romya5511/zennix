@@ -37,31 +37,60 @@ export function setSoundEnabled(enabled) {
   localStorage.setItem(STORAGE_KEY, String(enabled))
 }
 
+// A single reusable tone: attack, hold briefly, exponential decay.
+function playTone(freq, delay, duration, peakVolume) {
+  const ctx = getContext()
+  if (!ctx) return
+  const now = ctx.currentTime
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.type = 'sine'
+  osc.frequency.value = freq
+  gain.gain.setValueAtTime(0.0001, now + delay)
+  gain.gain.exponentialRampToValueAtTime(peakVolume, now + delay + 0.012)
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + duration)
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.start(now + delay)
+  osc.stop(now + delay + duration + 0.02)
+}
+
 // A quick two-tone "coin drop" cue — first tone, then a slightly higher
 // second tone ~90ms later, each with a fast attack and exponential decay
-// so it reads as a crisp "ding" rather than a harsh beep.
+// so it reads as a crisp "ding" rather than a harsh beep. Used by
+// SaveDelight after a successful save.
 export function playSaveSound() {
   if (!getSoundEnabled()) return
   try {
-    const ctx = getContext()
-    if (!ctx) return
-    const now = ctx.currentTime
-
-    ;[[880, 0], [1318.5, 0.09]].forEach(([freq, delay]) => {
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.type = 'sine'
-      osc.frequency.value = freq
-      gain.gain.setValueAtTime(0.0001, now + delay)
-      gain.gain.exponentialRampToValueAtTime(0.18, now + delay + 0.015)
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + 0.22)
-      osc.connect(gain)
-      gain.connect(ctx.destination)
-      osc.start(now + delay)
-      osc.stop(now + delay + 0.25)
-    })
+    playTone(880, 0, 0.22, 0.18)
+    playTone(1318.5, 0.09, 0.22, 0.18)
   } catch (e) {
     // Never let a sound failure block or delay the actual save.
     console.warn('Sound playback skipped:', e)
+  }
+}
+
+// NEW — Day 17 follow-up: a very quiet, short "tick" played on each jitter
+// step of SettlingNumber's casino-reveal animation (like a slot-machine
+// reel). Kept deliberately quiet and brief since it repeats several times
+// in under a second.
+export function playTickSound() {
+  if (!getSoundEnabled()) return
+  try {
+    playTone(520, 0, 0.05, 0.05)
+  } catch (e) {
+    console.warn('Tick sound skipped:', e)
+  }
+}
+
+// NEW — Day 17 follow-up: a single clear chime the moment a number
+// finishes settling on its exact value — the "landed" confirmation,
+// distinct in tone/color from both the tick and the save sound.
+export function playSettleSound() {
+  if (!getSoundEnabled()) return
+  try {
+    playTone(1046.5, 0, 0.28, 0.16)
+  } catch (e) {
+    console.warn('Settle sound skipped:', e)
   }
 }
