@@ -70,14 +70,31 @@ export function playSaveSound() {
   }
 }
 
-// NEW — Day 17 follow-up: a very quiet, short "tick" played on each jitter
-// step of SettlingNumber's casino-reveal animation (like a slot-machine
-// reel). Kept deliberately quiet and brief since it repeats several times
-// in under a second.
+// NEW — Day 17 follow-up: a short, crisp "tick" played on each jitter step
+// of SettlingNumber's casino-reveal animation (like a slot-machine reel).
+// Uses a square wave (more high-frequency bite than a sine) with a very
+// fast attack/decay so it reads as a mechanical click rather than a soft
+// musical note. Frequency jitters slightly each call so repeated ticks in
+// quick succession sound like a spinning reel, not a metronome.
 export function playTickSound() {
   if (!getSoundEnabled()) return
   try {
-    playTone(520, 0, 0.05, 0.05)
+    const ctx = getContext()
+    if (!ctx) return
+    const now = ctx.currentTime
+    const freq = 1900 + Math.random() * 400 // slight variation per tick
+
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'square'
+    osc.frequency.value = freq
+    gain.gain.setValueAtTime(0.0001, now)
+    gain.gain.exponentialRampToValueAtTime(0.16, now + 0.004)
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.06)
   } catch (e) {
     console.warn('Tick sound skipped:', e)
   }
