@@ -10,6 +10,8 @@ function BottomNav() {
     { label: 'Fixed Costs', icon: '📅', route: '/fixed-costs' },
     { label: 'Spend', icon: '📊', route: '/spend' },
     { label: 'History', icon: '🛒', route: '/history' },
+    // NEW — Day 17: Settings tab, added at the end of the nav per the plan.
+    { label: 'Settings', icon: '⚙️', route: '/settings' },
   ]
 
   return (
