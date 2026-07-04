@@ -9,6 +9,35 @@ function getFirstName(fullName) {
   return fullName.split(' ')[0]
 }
 
+function formatEntryDate(dateStr) {
+  return new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+}
+
+// Single source of truth for how every category looks across the app —
+// kept in sync with QuickLogGrid.jsx and HistoryPage.jsx so a category is
+// always the same color/icon everywhere the user sees it.
+const CATEGORY_META = {
+  'Grocery': { color: '#4f46e5', icon: '🛒' },
+  'Fixed Costs': { color: '#f59e0b', icon: '📅' },
+  'Food Delivery': { color: '#E85D3E', icon: '🍔' },
+  'Transport': { color: '#1E9E8F', icon: '🚕' },
+  'Online Shopping': { color: '#7C4FE0', icon: '🛍️' },
+  'Fruits & Vegetables': { color: '#3F9142', icon: '🥦' },
+  'Entertainment': { color: '#C98A0A', icon: '🎬' },
+  'Medical': { color: '#D14C79', icon: '💊' },
+}
+const FALLBACK_META = { color: '#6b7280', icon: '💸' }
+
+function categoryOf(entry) {
+  // category column is backfilled for all existing rows and always written
+  // for new ones (see Day 16 migration) — this fallback only guards against
+  // any future row that somehow lands without one.
+  if (entry.category) return entry.category
+  if (entry.source_type === 'grocery_list') return 'Grocery'
+  if (entry.source_type === 'fixed_cost') return 'Fixed Costs'
+  return 'Other'
+}
+
 function BarChart({ bars, onBarClick, highlightIndex }) {
   const W = 320
   const H = 140
@@ -62,49 +91,84 @@ function BarChart({ bars, onBarClick, highlightIndex }) {
   )
 }
 
-function DonutChart({ segments }) {
-  const total = segments.reduce((s, seg) => s + seg.value, 0)
-  if (total === 0) return (
-    <svg viewBox="0 0 120 120" style={{ width: '120px', height: '120px' }}>
-      <circle cx="60" cy="60" r="45" fill="none" stroke="#e5e7eb" strokeWidth="18" />
-      <text x="60" y="65" textAnchor="middle" fontSize="11" fill="#aaa">No data</text>
-    </svg>
-  )
-
-  const R = 45
-  const CX = 60, CY = 60
-  let startAngle = -Math.PI / 2
-  const paths = segments.map(seg => {
-    const angle = (seg.value / total) * 2 * Math.PI
-    const endAngle = startAngle + angle
-    const x1 = CX + R * Math.cos(startAngle)
-    const y1 = CY + R * Math.sin(startAngle)
-    const x2 = CX + R * Math.cos(endAngle)
-    const y2 = CY + R * Math.sin(endAngle)
-    const largeArc = angle > Math.PI ? 1 : 0
-    const d = `M ${CX} ${CY} L ${x1} ${y1} A ${R} ${R} 0 ${largeArc} 1 ${x2} ${y2} Z`
-    startAngle = endAngle
-    return { d, color: seg.color }
-  })
+// NEW — Day 16: replaces the old 2-slice DonutChart. Shows every category
+// (Grocery, Fixed Costs, and each Quick Log category) as an animated
+// horizontal bar, sorted highest to lowest. Tapping a row expands it
+// in place to show the individual entries that made up that total —
+// this is what actually answers "what did we spend it on."
+function CategoryBreakdown({ categories, total, profiles, expandedCat, onToggle, animateIn }) {
+  if (categories.length === 0) {
+    return <p style={styles.cardHint}>No spend recorded in this period yet.</p>
+  }
 
   return (
-    <svg viewBox="0 0 120 120" style={{ width: '120px', height: '120px' }}>
-      {paths.map((p, i) => <path key={i} d={p.d} fill={p.color} />)}
-      <circle cx={CX} cy={CY} r="28" fill="#fff" />
-      <text x={CX} y={CY - 4} textAnchor="middle" fontSize="10" fill="#111" fontWeight="700">
-        ₹{total >= 1000 ? (total / 1000).toFixed(1) + 'k' : Math.round(total)}
-      </text>
-      <text x={CX} y={CY + 10} textAnchor="middle" fontSize="8" fill="#888">total</text>
-    </svg>
+    <div style={styles.categoryList}>
+      {categories.map((cat, i) => {
+        const meta = CATEGORY_META[cat.name] || FALLBACK_META
+        const pct = total > 0 ? Math.round((cat.total / total) * 100) : 0
+        const isOpen = expandedCat === cat.name
+        return (
+          <div key={cat.name} style={styles.categoryBlock}>
+            <button
+              style={styles.categoryRow}
+              onClick={() => onToggle(cat.name)}
+            >
+              <span style={{ ...styles.categoryIconWrap, background: `${meta.color}1A` }}>
+                {meta.icon}
+              </span>
+              <div style={styles.categoryMid}>
+                <div style={styles.categoryTopLine}>
+                  <span style={styles.categoryName}>{cat.name}</span>
+                  <span style={styles.categoryAmt}>₹{cat.total.toFixed(0)}</span>
+                </div>
+                <div style={styles.categoryBarTrack}>
+                  <div
+                    style={{
+                      ...styles.categoryBarFill,
+                      background: meta.color,
+                      width: animateIn ? `${pct}%` : '0%',
+                      transitionDelay: `${i * 60}ms`,
+                    }}
+                  />
+                </div>
+              </div>
+              <span style={styles.categoryChevron}>{isOpen ? '▲' : '▼'}</span>
+            </button>
+
+            {isOpen && (
+              <div style={styles.categoryEntries}>
+                {cat.entries
+                  .slice()
+                  .sort((a, b) => new Date(b.bought_at) - new Date(a.bought_at))
+                  .map(entry => (
+                    <div key={entry.id} style={styles.categoryEntryRow}>
+                      <span style={styles.categoryEntryName}>
+                        {cat.name === entry.item_name ? formatEntryDate(entry.bought_at) : entry.item_name}
+                      </span>
+                      <span style={styles.categoryEntryMeta}>
+                        {cat.name !== entry.item_name ? formatEntryDate(entry.bought_at) + ' · ' : ''}
+                        {getFirstName(profiles[entry.bought_by])}
+                      </span>
+                      <span style={{ ...styles.categoryEntryAmt, color: meta.color }}>
+                        ₹{parseFloat(entry.amount || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
 function MonthDetailModal({ monthLabel, entries, profiles, onClose }) {
-  const groceryEntries = entries.filter(e => e.source_type === 'grocery_list')
-  const fixedEntries = entries.filter(e => e.source_type === 'fixed_cost')
+  const groceryEntries = entries.filter(e => categoryOf(e) === 'Grocery')
+  const fixedEntries = entries.filter(e => categoryOf(e) === 'Fixed Costs')
   const groceryTotal = groceryEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
   const fixedTotal = fixedEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
-  const grandTotal = groceryTotal + fixedTotal
+  const grandTotal = entries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
 
   // Group fixed costs by name
   const fixedByName = {}
@@ -118,6 +182,21 @@ function MonthDetailModal({ monthLabel, entries, profiles, onClose }) {
     groceryByName[e.item_name] = (groceryByName[e.item_name] || 0) + (parseFloat(e.amount) || 0)
   })
   const grocerySorted = Object.entries(groceryByName).sort((a, b) => b[1] - a[1])
+
+  // NEW — Day 16: every Quick Log category present this month, each its
+  // own section listing individual entries (grouping by name doesn't make
+  // sense here since every entry in a category shares the same item_name).
+  const quickLogCategoryNames = Object.keys(CATEGORY_META).filter(
+    name => name !== 'Grocery' && name !== 'Fixed Costs'
+  )
+  const quickLogSections = quickLogCategoryNames
+    .map(name => {
+      const catEntries = entries.filter(e => categoryOf(e) === name)
+      const total = catEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+      return { name, entries: catEntries, total }
+    })
+    .filter(s => s.entries.length > 0)
+    .sort((a, b) => b.total - a.total)
 
   return (
     <div style={modalStyles.overlay} onClick={onClose}>
@@ -166,6 +245,31 @@ function MonthDetailModal({ monthLabel, entries, profiles, onClose }) {
           )}
         </div>
 
+        {/* NEW — Day 16: Quick Log category sections */}
+        {quickLogSections.map(section => {
+          const meta = CATEGORY_META[section.name] || FALLBACK_META
+          return (
+            <div key={section.name} style={modalStyles.section}>
+              <div style={modalStyles.sectionHeader}>
+                <span style={modalStyles.sectionIcon}>{meta.icon}</span>
+                <span style={modalStyles.sectionName}>{section.name}</span>
+                <span style={modalStyles.sectionTotal}>₹{section.total.toFixed(2)}</span>
+              </div>
+              {section.entries
+                .slice()
+                .sort((a, b) => new Date(b.bought_at) - new Date(a.bought_at))
+                .map(entry => (
+                  <div key={entry.id} style={modalStyles.itemRow}>
+                    <span style={modalStyles.itemName}>
+                      {formatEntryDate(entry.bought_at)} · {getFirstName(profiles[entry.bought_by])}
+                    </span>
+                    <span style={modalStyles.itemAmount}>₹{parseFloat(entry.amount || 0).toFixed(2)}</span>
+                  </div>
+                ))}
+            </div>
+          )
+        })}
+
       </div>
     </div>
   )
@@ -179,8 +283,20 @@ function SpendPage() {
   const [profiles, setProfiles] = useState({})
   const [selectedMonth, setSelectedMonth] = useState(null)
   const [highlightBar, setHighlightBar] = useState(null)
+  const [expandedCat, setExpandedCat] = useState(null)
+  const [animateIn, setAnimateIn] = useState(false)
 
   useEffect(() => { loadSpend() }, [])
+
+  // NEW — Day 16: trigger the bar-fill animation shortly after data loads
+  // (and whenever the week/month toggle changes), so bars visibly grow
+  // in rather than appearing instantly — the "wow" motion cue.
+  useEffect(() => {
+    if (loading) return
+    setAnimateIn(false)
+    const t = setTimeout(() => setAnimateIn(true), 50)
+    return () => clearTimeout(t)
+  }, [loading, view])
 
   async function loadSpend() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -225,6 +341,19 @@ function SpendPage() {
     setLoading(false)
   }
 
+  // NEW — Day 16: build the sorted category breakdown for a given set of
+  // entries. Used by both the week and month views.
+  function buildCategoryBreakdown(periodEntries) {
+    const byCategory = {}
+    periodEntries.forEach(e => {
+      const name = categoryOf(e)
+      if (!byCategory[name]) byCategory[name] = { name, total: 0, entries: [] }
+      byCategory[name].total += parseFloat(e.amount) || 0
+      byCategory[name].entries.push(e)
+    })
+    return Object.values(byCategory).sort((a, b) => b.total - a.total)
+  }
+
   function getWeekData() {
     const now = new Date()
     const day = now.getDay()
@@ -252,17 +381,17 @@ function SpendPage() {
     })
 
     const weekEntries = entries.filter(e => new Date(e.bought_at) >= monday)
-    const grocery = weekEntries.filter(e => e.source_type === 'grocery_list')
-      .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
-    const fixed = weekEntries.filter(e => e.source_type === 'fixed_cost')
-      .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
     const perPerson = {}
     weekEntries.forEach(e => {
       if (!e.bought_by) return
       perPerson[e.bought_by] = (perPerson[e.bought_by] || 0) + (parseFloat(e.amount) || 0)
     })
+    // FIX — Day 16: total now sums every entry in the period, not just
+    // grocery + fixed. Previously Quick Log spend was silently excluded
+    // from this number.
+    const total = weekEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
 
-    return { bars, grocery, fixed, perPerson, total: grocery + fixed }
+    return { bars, perPerson, total, categories: buildCategoryBreakdown(weekEntries) }
   }
 
   function getMonthData() {
@@ -294,17 +423,15 @@ function SpendPage() {
       const t = new Date(e.bought_at)
       return t >= curMonth && t < nextMonth
     })
-    const grocery = curEntries.filter(e => e.source_type === 'grocery_list')
-      .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
-    const fixed = curEntries.filter(e => e.source_type === 'fixed_cost')
-      .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
     const perPerson = {}
     curEntries.forEach(e => {
       if (!e.bought_by) return
       perPerson[e.bought_by] = (perPerson[e.bought_by] || 0) + (parseFloat(e.amount) || 0)
     })
+    // FIX — Day 16: same total fix as getWeekData().
+    const total = curEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
 
-    return { bars, grocery, fixed, perPerson, total: grocery + fixed }
+    return { bars, perPerson, total, categories: buildCategoryBreakdown(curEntries) }
   }
 
   if (loading) return <LoadingScreen type="spend" />
@@ -313,18 +440,12 @@ function SpendPage() {
   const monthData = getMonthData()
   const data = view === 'week' ? weekData : monthData
 
-  const donutSegments = [
-    { label: 'Grocery', value: data.grocery, color: '#4f46e5' },
-    { label: 'Fixed', value: data.fixed, color: '#f59e0b' },
-  ]
-
   const maxPerson = Math.max(...Object.values(data.perPerson), 1)
 
   return (
     <div style={styles.page}>
 
       <div style={styles.header}>
-        {/* ── FIXED: always navigate to / instead of browser back ── */}
         <button style={styles.backBtn} onClick={() => navigate('/')}>← Back</button>
         <h1 style={styles.title}>Spend Analytics</h1>
       </div>
@@ -335,13 +456,13 @@ function SpendPage() {
         <div style={styles.toggle}>
           <button
             style={view === 'week' ? { ...styles.toggleBtn, ...styles.toggleBtnActive } : styles.toggleBtn}
-            onClick={() => { setView('week'); setHighlightBar(null) }}
+            onClick={() => { setView('week'); setHighlightBar(null); setExpandedCat(null) }}
           >
             This Week
           </button>
           <button
             style={view === 'month' ? { ...styles.toggleBtn, ...styles.toggleBtnActive } : styles.toggleBtn}
-            onClick={() => { setView('month'); setHighlightBar(null) }}
+            onClick={() => { setView('month'); setHighlightBar(null); setExpandedCat(null) }}
           >
             Monthly
           </button>
@@ -376,28 +497,20 @@ function SpendPage() {
           />
         </div>
 
-        {/* Donut chart */}
+        {/* NEW — Day 16: full category breakdown replacing the old
+            2-slice "Grocery vs Fixed" donut. Grocery, Fixed Costs, and
+            every Quick Log category shown as peers, tap to drill in. */}
         <div style={styles.card}>
-          <p style={styles.cardTitle}>Grocery vs Fixed</p>
-          <div style={styles.donutRow}>
-            <DonutChart segments={donutSegments} />
-            <div style={styles.legend}>
-              {donutSegments.map(seg => (
-                <div key={seg.label} style={styles.legendItem}>
-                  <div style={{ ...styles.legendDot, background: seg.color }} />
-                  <div>
-                    <p style={styles.legendLabel}>{seg.label}</p>
-                    <p style={styles.legendAmount}>₹{seg.value.toFixed(2)}</p>
-                    {data.total > 0 && (
-                      <p style={styles.legendPct}>
-                        {Math.round((seg.value / data.total) * 100)}%
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <p style={styles.cardTitle}>Spend by Category</p>
+          <p style={styles.cardHint}>Tap a category to see what made it up</p>
+          <CategoryBreakdown
+            categories={data.categories}
+            total={data.total}
+            profiles={profiles}
+            expandedCat={expandedCat}
+            onToggle={(name) => setExpandedCat(prev => prev === name ? null : name)}
+            animateIn={animateIn}
+          />
         </div>
 
         {/* Per-person */}
@@ -408,7 +521,7 @@ function SpendPage() {
               <div key={uid} style={styles.personRow}>
                 <span style={styles.personName}>{getFirstName(profiles[uid])}</span>
                 <div style={styles.personBarWrap}>
-                  <div style={{ ...styles.personBar, width: `${Math.round((total / maxPerson) * 100)}%` }} />
+                  <div style={{ ...styles.personBar, width: animateIn ? `${Math.round((total / maxPerson) * 100)}%` : '0%' }} />
                 </div>
                 <span style={styles.personAmt}>₹{total.toFixed(0)}</span>
               </div>
@@ -420,7 +533,7 @@ function SpendPage() {
           <div style={styles.emptyCard}>
             <p style={styles.emptyIcon}>🧾</p>
             <p style={styles.emptyText}>No spend recorded yet.</p>
-            <p style={styles.emptySubText}>Complete a grocery list or log a fixed cost to see it here.</p>
+            <p style={styles.emptySubText}>Complete a grocery list, log a fixed cost, or Quick Log a spend to see it here.</p>
           </div>
         )}
 
@@ -462,18 +575,33 @@ const styles = {
   cardTitle: { fontSize: '0.85rem', fontWeight: '700', color: '#111', margin: 0 },
   cardHint: { fontSize: '0.75rem', color: '#9ca3af', margin: '-0.5rem 0 0' },
 
-  donutRow: { display: 'flex', alignItems: 'center', gap: '1.5rem' },
-  legend: { display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 },
-  legendItem: { display: 'flex', alignItems: 'flex-start', gap: '0.6rem' },
-  legendDot: { width: '10px', height: '10px', borderRadius: '50%', marginTop: '3px', flexShrink: 0 },
-  legendLabel: { fontSize: '0.85rem', fontWeight: '600', color: '#111', margin: 0 },
-  legendAmount: { fontSize: '0.95rem', fontWeight: '700', color: '#111', margin: 0 },
-  legendPct: { fontSize: '0.75rem', color: '#9ca3af', margin: 0 },
+  categoryList: { display: 'flex', flexDirection: 'column', gap: '0.4rem' },
+  categoryBlock: { borderBottom: '1px solid #f3f4f6', paddingBottom: '0.5rem' },
+  categoryRow: {
+    width: '100%', display: 'flex', alignItems: 'center', gap: '0.65rem',
+    background: 'none', border: 'none', padding: '0.4rem 0', cursor: 'pointer', textAlign: 'left',
+  },
+  categoryIconWrap: {
+    width: '34px', height: '34px', borderRadius: '50%', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0,
+  },
+  categoryMid: { flex: 1, display: 'flex', flexDirection: 'column', gap: '0.3rem', minWidth: 0 },
+  categoryTopLine: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' },
+  categoryName: { fontSize: '0.85rem', fontWeight: '600', color: '#111' },
+  categoryAmt: { fontSize: '0.85rem', fontWeight: '700', color: '#111' },
+  categoryBarTrack: { background: '#f3f4f6', borderRadius: '999px', height: '6px', overflow: 'hidden' },
+  categoryBarFill: { height: '6px', borderRadius: '999px', transition: 'width 0.6s ease' },
+  categoryChevron: { fontSize: '0.65rem', color: '#9ca3af', flexShrink: 0 },
+  categoryEntries: { paddingLeft: '2.7rem', display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.3rem' },
+  categoryEntryRow: { display: 'flex', alignItems: 'center', gap: '0.5rem' },
+  categoryEntryName: { flex: 1, fontSize: '0.78rem', color: '#444' },
+  categoryEntryMeta: { fontSize: '0.72rem', color: '#9ca3af' },
+  categoryEntryAmt: { fontSize: '0.78rem', fontWeight: '700', flexShrink: 0 },
 
   personRow: { display: 'flex', alignItems: 'center', gap: '0.75rem' },
   personName: { fontSize: '0.875rem', fontWeight: '600', color: '#111', width: '60px', flexShrink: 0 },
   personBarWrap: { flex: 1, background: '#f3f4f6', borderRadius: '999px', height: '10px', overflow: 'hidden' },
-  personBar: { height: '10px', background: '#4f46e5', borderRadius: '999px', transition: 'width 0.4s ease' },
+  personBar: { height: '10px', background: '#4f46e5', borderRadius: '999px', transition: 'width 0.6s ease' },
   personAmt: { fontSize: '0.875rem', fontWeight: '700', color: '#4f46e5', width: '60px', textAlign: 'right', flexShrink: 0 },
 
   emptyCard: { background: '#fff', borderRadius: '16px', padding: '2rem 1.5rem', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' },
