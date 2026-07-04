@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import PushPermissionModal from '../components/PushPermissionModal'
 import BottomNav from '../components/BottomNav'
 import LoadingScreen from '../components/LoadingScreen'
+import QuickLogGrid from '../components/QuickLogGrid'
 import { supabase } from '../lib/supabase'
 
 function Home() {
@@ -137,6 +138,11 @@ function Home() {
         async () => { await checkLists(householdIdRef.current, currentUserIdRef.current) })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'list_items' },
         async () => { await checkLists(householdIdRef.current, currentUserIdRef.current) })
+      // NEW — Day 16: keep the weekly spend total live when either member
+      // logs a Quick Log entry (or any household_bucket row changes),
+      // without needing a manual refresh.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'household_bucket', filter: `household_id=eq.${hid}` },
+        async () => { await loadWeeklySpend(householdIdRef.current) })
       .subscribe()
     channelRef.current = channel
   }
@@ -236,6 +242,16 @@ function Home() {
               + Create grocery list
             </button>
           </div>
+        )}
+
+        {/* NEW — Day 16: Quick Log category grid, placed below the grocery
+            list section per the finalized design. */}
+        {currentUserId && (
+          <QuickLogGrid
+            householdId={householdIdRef.current}
+            userId={currentUserId}
+            onSaved={() => loadWeeklySpend(householdIdRef.current)}
+          />
         )}
 
       </div>
