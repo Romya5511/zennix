@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import BottomNav from '../components/BottomNav'
 import LoadingScreen from '../components/LoadingScreen'
+import { useSaveDelight } from '../components/SaveDelight'
 
 const SUGGESTIONS = [
   'Rent', 'Electricity', 'WiFi', 'Gas', 'School fees',
@@ -85,6 +86,7 @@ function ordinal(n) {
 
 function FixedCosts() {
   const navigate = useNavigate()
+  const { fire: fireSaveDelight, Overlay: SaveDelightOverlay } = useSaveDelight()
   const [loading, setLoading] = useState(true)
   const [costs, setCosts] = useState([])
   const [search, setSearch] = useState('')
@@ -192,11 +194,13 @@ function FixedCosts() {
     const uid = userIdRef.current
     const monthYear = currentMonthYear()
     const now = new Date().toISOString()
+    let totalPaidThisBatch = 0
 
     for (const costId of Object.keys(markedPaid)) {
       const cost = costs.find(c => c.id === costId)
       if (!cost) continue
       const amount = parseFloat(payAmounts[costId]) || 0
+      totalPaidThisBatch += amount
 
       await supabase.from('fixed_cost_payments').insert({
         fixed_cost_id: costId, household_id: hid,
@@ -204,7 +208,7 @@ function FixedCosts() {
       })
       await supabase.from('household_bucket').insert({
         household_id: hid, source_type: 'fixed_cost', source_id: costId,
-        item_name: cost.description, quantity: '1', amount, bought_by: uid, bought_at: now,
+        item_name: cost.description, category: 'Fixed Costs', quantity: '1', amount, bought_by: uid, bought_at: now,
       })
       if (amount > 0) {
         await supabase.from('fixed_costs').update({ last_amount: amount }).eq('id', costId)
@@ -219,6 +223,10 @@ function FixedCosts() {
     setMarkedPaid({})
     setShowPaySheet(false)
     setConfirming(false)
+
+    // Day 17 — Save Delight: fire once for the whole batch, after all
+    // payments have actually been written, never before.
+    if (totalPaidThisBatch > 0) fireSaveDelight(totalPaidThisBatch)
   }
 
   async function deleteCost(costId) {
@@ -516,6 +524,8 @@ function FixedCosts() {
       {/* ── NEW: Bottom nav spacer + nav ── */}
       <div style={{ height: '80px' }} />
       <BottomNav />
+
+      {SaveDelightOverlay}
 
     </div>
   )

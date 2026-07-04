@@ -98,7 +98,7 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
       setAmount('')
       setDate(todayStr())
     }, 650)
-    if (onSaved) onSaved()
+    if (onSaved) onSaved(parsed)
   }
 
   return (

@@ -4,10 +4,13 @@ import PushPermissionModal from '../components/PushPermissionModal'
 import BottomNav from '../components/BottomNav'
 import LoadingScreen from '../components/LoadingScreen'
 import QuickLogGrid from '../components/QuickLogGrid'
+import SettlingNumber from '../components/SettlingNumber'
+import { useSaveDelight } from '../components/SaveDelight'
 import { supabase } from '../lib/supabase'
 
 function Home() {
   const navigate = useNavigate()
+  const { fire: fireSaveDelight, Overlay: SaveDelightOverlay } = useSaveDelight()
   const [loading, setLoading] = useState(true)
   const [showPushModal, setShowPushModal] = useState(false)
   const [currentUserId, setCurrentUserId] = useState(null)
@@ -189,7 +192,7 @@ function Home() {
         <div style={styles.spendSummaryCard} onClick={() => navigate('/spend')}>
           <div style={styles.spendSummaryLeft}>
             <p style={styles.spendSummaryLabel}>This week's spend</p>
-            <p style={styles.spendSummaryTotal}>₹{weekTotal.toFixed(2)}</p>
+            <p style={styles.spendSummaryTotal}><SettlingNumber value={weekTotal} decimals={2} /></p>
             {change ? (
               <p style={styles.spendSummaryChange}>{change.text}</p>
             ) : (
@@ -250,11 +253,16 @@ function Home() {
           <QuickLogGrid
             householdId={householdIdRef.current}
             userId={currentUserId}
-            onSaved={() => loadWeeklySpend(householdIdRef.current)}
+            onSaved={(amount) => {
+              loadWeeklySpend(householdIdRef.current)
+              fireSaveDelight(amount)
+            }}
           />
         )}
 
       </div>
+
+      {SaveDelightOverlay}
 
       {showPushModal && (
         <PushPermissionModal userId={currentUserId} onDone={() => setShowPushModal(false)} />

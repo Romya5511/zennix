@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { sendPush } from '../lib/push'
 import { supabase } from '../lib/supabase'
 import LoadingScreen from '../components/LoadingScreen'
+import { useSaveDelight } from '../components/SaveDelight'
 
 const SEED_ITEMS = [
   'Atta', 'Doodh', 'Chawal', 'Dal', 'Chini', 'Namak', 'Tel', 'Sabzi',
@@ -360,6 +361,7 @@ function ListPage() {
   const { id } = useParams()
   const [searchParams] = useSearchParams()
   const isNew = id === 'new'
+  const { fire: fireSaveDelight, Overlay: SaveDelightOverlay } = useSaveDelight()
 
   const [loading, setLoading] = useState(true)
   const [listId, setListId] = useState(isNew ? null : id)
@@ -824,6 +826,10 @@ function ListPage() {
         bought_by: item.ticked_by,
         bought_at: now,
       }, { onConflict: 'list_item_id' })
+
+    // Day 17 — Save Delight: fire right after the write succeeds, never
+    // before, so the animation/sound can't delay the actual save.
+    fireSaveDelight(price)
 
     // FIX C — the old code had:
     //   if (Object.keys(doneEdits).length > 0) return
@@ -1427,6 +1433,8 @@ function ListPage() {
           </div>
         </>
       )}
+
+      {SaveDelightOverlay}
 
     </div>
   )

@@ -9,6 +9,7 @@ import ListPage from './pages/ListPage'
 import FixedCosts from './pages/FixedCosts'
 import SpendPage from './pages/SpendPage'
 import HistoryPage from './pages/HistoryPage'
+import Settings from './pages/Settings'
 import LandingPage from './pages/LandingPage'
 import IOSInstallBanner from './components/IOSInstallBanner'
 
@@ -72,6 +73,8 @@ function App() {
             <Route path="/fixed-costs" element={<FixedCosts />} />
             <Route path="/spend"       element={<SpendPage />} />
             <Route path="/history"     element={<HistoryPage />} />
+            {/* NEW — Day 17: Settings page (Sound effects toggle) */}
+            <Route path="/settings"    element={<Settings />} />
             <Route path="*"            element={<Navigate to="/" replace />} />
           </>
         )}

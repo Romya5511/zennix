@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import BottomNav from '../components/BottomNav'
 import LoadingScreen from '../components/LoadingScreen'
+import SettlingNumber from '../components/SettlingNumber'
 
 function getFirstName(fullName) {
   if (!fullName) return 'Someone'
@@ -473,7 +474,7 @@ function SpendPage() {
           <p style={styles.summaryLabel}>
             {view === 'week' ? 'This week' : 'This month'}
           </p>
-          <p style={styles.summaryTotal}>₹{data.total.toFixed(2)}</p>
+          <p style={styles.summaryTotal}><SettlingNumber value={data.total} decimals={2} /></p>
         </div>
 
         {/* Bar chart */}
