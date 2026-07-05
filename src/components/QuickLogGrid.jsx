@@ -8,6 +8,17 @@ const CATEGORIES = [
   { key: 'Fruits & Vegetables', emoji: '🥦', bg: '#E5F5E0', accent: '#3F9142' },
   { key: 'Entertainment', emoji: '🎬', bg: '#FFF3D6', accent: '#C98A0A' },
   { key: 'Medical', emoji: '💊', bg: '#FCE3EC', accent: '#D14C79' },
+  // NEW — added on request
+  { key: 'Fish/Meat/Egg', emoji: '🍗', bg: '#F6E3D3', accent: '#B8621B' },
+  { key: 'Tea/Coffee', emoji: '☕', bg: '#F0E4D6', accent: '#8B5E34' },
+  {
+    key: 'Liquor', emoji: '🍷', bg: '#F3E1EA', accent: '#9C3B5E',
+    warning: "Can't listen to the people who raised you, but you'll listen to an app? Come on.",
+  },
+  {
+    key: 'Cigarettes', emoji: '🚬', bg: '#E9E6E2', accent: '#6B6660',
+    warning: "Can't listen to the people who raised you, but you'll listen to an app? Come on.",
+  },
 ]
 
 const QUICK_AMOUNTS = [50, 100, 200, 500]
@@ -143,6 +154,12 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
               <button style={styles.closeBtn} onClick={cancel} disabled={saving}>✕</button>
             </div>
 
+            {CATEGORIES.find(c => c.key === expanded)?.warning && (
+              <p style={styles.warningNote}>
+                {CATEGORIES.find(c => c.key === expanded).warning}
+              </p>
+            )}
+
             <div style={styles.amountRow}>
               <span style={styles.rupee}>₹</span>
               <input
@@ -262,6 +279,11 @@ const styles = {
   },
   formHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   formTitle: { fontSize: '0.95rem', fontWeight: '700', color: '#111' },
+  warningNote: {
+    fontSize: '0.78rem', fontWeight: '600', color: '#9C3B5E',
+    background: '#F3E1EA', border: '1px solid #e8c3d6', borderRadius: '10px',
+    padding: '0.6rem 0.75rem', margin: 0, lineHeight: '1.4',
+  },
   closeBtn: {
     background: 'none', border: 'none', fontSize: '1rem', color: '#aaa', cursor: 'pointer', padding: '0.2rem',
   },

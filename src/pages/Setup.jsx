@@ -108,7 +108,7 @@ function Setup() {
             </div>
 
             <button style={styles.soloButton} onClick={goToHome}>
-              Use alone for now
+              Haq se Single
             </button>
             <p style={styles.soloNote}>
               You can invite someone later from Settings.

@@ -1,11 +1,45 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import BottomNav from '../components/BottomNav'
+import { supabase } from '../lib/supabase'
 import { getSoundEnabled, setSoundEnabled, playSaveSound } from '../lib/soundEngine'
+
+function getFirstName(fullName) {
+  if (!fullName) return 'Someone'
+  return fullName.split(' ')[0]
+}
 
 function Settings() {
   const navigate = useNavigate()
   const [soundOn, setSoundOn] = useState(getSoundEnabled())
+  const [loadingHousehold, setLoadingHousehold] = useState(true)
+  const [householdId, setHouseholdId] = useState(null)
+  const [members, setMembers] = useState([])
+  const [currentUserId, setCurrentUserId] = useState(null)
+
+  useEffect(() => { loadHouseholdInfo() }, [])
+
+  async function loadHouseholdInfo() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { navigate('/'); return }
+    setCurrentUserId(user.id)
+
+    const { data: membership } = await supabase
+      .from('household_members')
+      .select('household_id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (membership) {
+      setHouseholdId(membership.household_id)
+      const { data: memberRows } = await supabase
+        .from('household_members')
+        .select('user_id, profiles(full_name)')
+        .eq('household_id', membership.household_id)
+      setMembers(memberRows || [])
+    }
+    setLoadingHousehold(false)
+  }
 
   function toggleSound() {
     const next = !soundOn
@@ -14,6 +48,18 @@ function Settings() {
     if (next) playSaveSound() // quick confirmation cue when turning back on
   }
 
+  // NEW — lets a solo user invite their partner later, reusing the exact
+  // same WhatsApp invite link pattern used during initial household setup.
+  function shareInviteLink() {
+    if (!householdId) return
+    const joinUrl = `https://zennix.in/join?invite=${householdId}`
+    const message = `Hey! I'm using Zennix to track our shared expenses. Join our household here: ${joinUrl}`
+    const waLink = `https://wa.me/?text=${encodeURIComponent(message)}`
+    window.open(waLink, '_blank', 'noopener,noreferrer')
+  }
+
+  const isSolo = members.length < 2
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -21,7 +67,37 @@ function Settings() {
       </div>
 
       <div style={styles.content}>
-        <p style={styles.sectionLabel}>APP</p>
+
+        <p style={styles.sectionLabel}>HOUSEHOLD</p>
+
+        {loadingHousehold ? (
+          <div style={styles.row}>
+            <span style={styles.rowHint}>Loading...</span>
+          </div>
+        ) : isSolo ? (
+          <div style={styles.row}>
+            <div style={styles.rowText}>
+              <span style={styles.rowLabel}>Invite your partner</span>
+              <span style={styles.rowHint}>
+                Using Zennix alone for now? Send an invite whenever you're ready to share it.
+              </span>
+            </div>
+            <button style={styles.inviteBtn} onClick={shareInviteLink}>
+              📲 Invite
+            </button>
+          </div>
+        ) : (
+          <div style={styles.row}>
+            <div style={styles.rowText}>
+              <span style={styles.rowLabel}>Household members</span>
+              <span style={styles.rowHint}>
+                {members.map(m => getFirstName(m.profiles?.full_name)).join(' & ')}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <p style={{ ...styles.sectionLabel, marginTop: '1.5rem' }}>APP</p>
 
         <div style={styles.row}>
           <div style={styles.rowText}>
@@ -65,6 +141,11 @@ const styles = {
   rowText: { display: 'flex', flexDirection: 'column', gap: '0.3rem' },
   rowLabel: { fontSize: '0.95rem', fontWeight: '600', color: '#111' },
   rowHint: { fontSize: '0.78rem', color: '#9ca3af', lineHeight: '1.4' },
+  inviteBtn: {
+    padding: '0.55rem 1rem', fontSize: '0.85rem', fontWeight: '700',
+    background: '#25D366', color: '#fff', border: 'none', borderRadius: '999px',
+    cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
+  },
   toggle: {
     width: '46px', height: '26px', borderRadius: '999px', background: '#e5e7eb',
     border: 'none', cursor: 'pointer', position: 'relative', flexShrink: 0, padding: 0,

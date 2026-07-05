@@ -26,6 +26,10 @@ const CATEGORY_META = {
   'Fruits & Vegetables': { color: '#3F9142', icon: '🥦' },
   'Entertainment': { color: '#C98A0A', icon: '🎬' },
   'Medical': { color: '#D14C79', icon: '💊' },
+  'Fish/Meat/Egg': { color: '#B8621B', icon: '🍗' },
+  'Tea/Coffee': { color: '#8B5E34', icon: '☕' },
+  'Liquor': { color: '#9C3B5E', icon: '🍷' },
+  'Cigarettes': { color: '#6B6660', icon: '🚬' },
 }
 const FALLBACK_META = { color: '#6b7280', icon: '💸' }
 

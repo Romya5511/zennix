@@ -21,6 +21,10 @@ const QUICK_LOG_STYLE = {
   'Fruits & Vegetables': { emoji: '🥦', accent: '#3F9142' },
   'Entertainment': { emoji: '🎬', accent: '#C98A0A' },
   'Medical': { emoji: '💊', accent: '#D14C79' },
+  'Fish/Meat/Egg': { emoji: '🍗', accent: '#B8621B' },
+  'Tea/Coffee': { emoji: '☕', accent: '#8B5E34' },
+  'Liquor': { emoji: '🍷', accent: '#9C3B5E' },
+  'Cigarettes': { emoji: '🚬', accent: '#6B6660' },
 }
 
 // ── Month name helper ────────────────────────────────────────────────────────
