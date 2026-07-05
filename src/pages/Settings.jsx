@@ -20,7 +20,9 @@ function Settings() {
   useEffect(() => { loadHouseholdInfo() }, [])
 
   async function loadHouseholdInfo() {
-    const { data: { user } } = await supabase.auth.getUser()
+    // PERF — see Home.jsx for why getSession() replaces getUser() here.
+    const { data: { session } } = await supabase.auth.getSession()
+    const user = session?.user
     if (!user) { navigate('/'); return }
     setCurrentUserId(user.id)
 

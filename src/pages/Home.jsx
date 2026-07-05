@@ -36,7 +36,14 @@ function Home() {
   }, [])
 
   async function loadHome() {
-    const { data: { user } } = await supabase.auth.getUser()
+    // PERF — getUser() makes a real network round-trip to Supabase's Auth
+    // server to re-validate the token, on every single page load. App.jsx
+    // already validates and maintains the session once at startup via
+    // getSession(), so re-validating here again was pure wasted latency.
+    // getSession() reads the already-valid session locally — no network
+    // call — since App.jsx keeps it fresh via onAuthStateChange.
+    const { data: { session } } = await supabase.auth.getSession()
+    const user = session?.user
     if (!user) { navigate('/'); return }
 
     // PERF — previously two separate queries hit the `profiles` table
