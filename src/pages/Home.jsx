@@ -23,6 +23,7 @@ function Home() {
   const [showUnseenModal, setShowUnseenModal] = useState(false)
   const [weekTotal, setWeekTotal] = useState(0)
   const [lastWeekTotal, setLastWeekTotal] = useState(0)
+  const [monthTotal, setMonthTotal] = useState(0)
   const channelRef = useRef(null)
   const householdIdRef = useRef(null)
   const currentUserIdRef = useRef(null)
@@ -62,6 +63,7 @@ function Home() {
 
     await checkLists(hid, user.id)
     await loadWeeklySpend(hid)
+    await loadMonthlySpend(hid)
     subscribeToHousehold(hid)
     setLoading(false)
   }
@@ -87,6 +89,20 @@ function Home() {
 
     setWeekTotal((thisWeekData || []).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0))
     setLastWeekTotal((lastWeekData || []).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0))
+  }
+
+  // NEW — same calendar-month boundaries used by History and Spend, so
+  // this number always matches those two exactly (no separate logic).
+  async function loadMonthlySpend(hid) {
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+
+    const { data: monthData } = await supabase
+      .from('household_bucket').select('amount').eq('household_id', hid)
+      .gte('bought_at', monthStart.toISOString()).lt('bought_at', monthEnd.toISOString())
+
+    setMonthTotal((monthData || []).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0))
   }
 
   async function checkLists(hid, uid) {
@@ -145,7 +161,10 @@ function Home() {
       // logs a Quick Log entry (or any household_bucket row changes),
       // without needing a manual refresh.
       .on('postgres_changes', { event: '*', schema: 'public', table: 'household_bucket', filter: `household_id=eq.${hid}` },
-        async () => { await loadWeeklySpend(householdIdRef.current) })
+        async () => {
+          await loadWeeklySpend(householdIdRef.current)
+          await loadMonthlySpend(householdIdRef.current)
+        })
       .subscribe()
     channelRef.current = channel
   }
@@ -175,6 +194,13 @@ function Home() {
     return { text: 'Same as last week' }
   }
 
+  // NEW — clarifying subtext so it's clear at a glance why the week and
+  // month figures can diverge near month boundaries (Mon–Sun weeks don't
+  // align with calendar months).
+  function currentMonthLabel() {
+    return new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+  }
+
   if (loading) return <LoadingScreen type="home" />
 
   const change = weekChangeText()
@@ -188,17 +214,26 @@ function Home() {
           <p style={styles.subText}>What needs to be done today?</p>
         </div>
 
-        {/* Weekly spend summary card */}
+        {/* Weekly + Monthly spend summary card */}
         <div style={styles.spendSummaryCard} onClick={() => navigate('/spend')}>
-          <div style={styles.spendSummaryLeft}>
+          <div style={styles.spendSummarySection}>
             <p style={styles.spendSummaryLabel}>This week's spend</p>
             <p style={styles.spendSummaryTotal}><SettlingNumber value={weekTotal} decimals={2} /></p>
             {change ? (
               <p style={styles.spendSummaryChange}>{change.text}</p>
             ) : (
-              <p style={styles.spendSummaryChange}>Tap to see full history</p>
+              <p style={styles.spendSummaryChange}>Mon–Sun · may span two months</p>
             )}
           </div>
+
+          <div style={styles.spendSummaryDivider} />
+
+          <div style={styles.spendSummarySection}>
+            <p style={styles.spendSummaryLabel}>This month's spend</p>
+            <p style={styles.spendSummaryTotal}><SettlingNumber value={monthTotal} decimals={2} /></p>
+            <p style={styles.spendSummaryChange}>{currentMonthLabel()}</p>
+          </div>
+
           <span style={styles.spendSummaryArrow}>→</span>
         </div>
 
@@ -301,10 +336,11 @@ const styles = {
   greeting: { marginBottom: '0.5rem' },
   greetingText: { fontSize: 'clamp(1.25rem, 4vw, 1.75rem)', fontWeight: '700', color: '#111', margin: '0 0 0.25rem' },
   subText: { fontSize: 'clamp(0.85rem, 2.2vw, 1rem)', color: '#888', margin: 0 },
-  spendSummaryCard: { background: '#4f46e5', borderRadius: '16px', padding: 'clamp(1rem, 3vw, 1.5rem)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', boxShadow: '0 4px 16px rgba(79,70,229,0.25)' },
-  spendSummaryLeft: { display: 'flex', flexDirection: 'column', gap: '0.2rem' },
+  spendSummaryCard: { background: '#4f46e5', borderRadius: '16px', padding: 'clamp(1rem, 3vw, 1.5rem)', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', boxShadow: '0 4px 16px rgba(79,70,229,0.25)' },
+  spendSummarySection: { flex: 1, display: 'flex', flexDirection: 'column', gap: '0.2rem', minWidth: 0 },
+  spendSummaryDivider: { width: '1px', alignSelf: 'stretch', background: 'rgba(255,255,255,0.25)', margin: '0 0.25rem' },
   spendSummaryLabel: { fontSize: 'clamp(0.75rem, 1.8vw, 0.85rem)', fontWeight: '700', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 },
-  spendSummaryTotal: { fontSize: 'clamp(1.5rem, 5vw, 2rem)', fontWeight: '800', color: '#fff', margin: 0 },
+  spendSummaryTotal: { fontSize: 'clamp(1.15rem, 4vw, 1.5rem)', fontWeight: '800', color: '#fff', margin: 0 },
   spendSummaryChange: { fontSize: 'clamp(0.75rem, 1.8vw, 0.85rem)', fontWeight: '600', color: 'rgba(255,255,255,0.8)', margin: 0 },
   spendSummaryArrow: { fontSize: '1.25rem', color: 'rgba(255,255,255,0.7)' },
   listCard: { background: '#fff', borderRadius: '16px', padding: 'clamp(1rem, 3vw, 1.5rem)', boxShadow: '0 2px 12px rgba(0,0,0,0.07)', display: 'flex', flexDirection: 'column', gap: '1rem' },
