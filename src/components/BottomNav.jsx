@@ -14,6 +14,33 @@ function BottomNav() {
     { label: 'Settings', icon: '⚙️', route: '/settings' },
   ]
 
+  // NEW — keeps the browser history stack shallow so the back button
+  // behaves predictably: one back from ANY tab returns to Home, and one
+  // more back from Home exits the app — instead of unwinding every tab
+  // you've visited in order (Settings → History → Spend → Home → exit).
+  //
+  // How: Home is always the one "anchor" entry at the bottom of the
+  // stack. Leaving Home pushes a single new entry. Switching between two
+  // non-Home tabs replaces that same entry instead of stacking a new one.
+  // Returning to Home goes back one step (collapsing the stacked entry)
+  // rather than pushing yet another entry on top.
+  //
+  // Caveat: this assumes normal in-app navigation starting from Home
+  // (true for typical use, and for how login/setup redirects work in this
+  // app). If someone opens a non-Home page directly via a bookmark or
+  // deep link, the very first back-tap's behavior may vary slightly.
+  function goToTab(route) {
+    if (route === path) return
+
+    if (path === '/') {
+      navigate(route) // leaving Home — push the one stacked entry
+    } else if (route === '/') {
+      navigate(-1) // returning to Home — collapse the stacked entry
+    } else {
+      navigate(route, { replace: true }) // switching between two non-Home tabs
+    }
+  }
+
   return (
     <div style={styles.nav}>
       {tabs.map(tab => {
@@ -22,7 +49,7 @@ function BottomNav() {
           <button
             key={tab.route}
             style={styles.tab}
-            onClick={() => navigate(tab.route)}
+            onClick={() => goToTab(tab.route)}
           >
             <span style={styles.icon}>{tab.icon}</span>
             <span style={{

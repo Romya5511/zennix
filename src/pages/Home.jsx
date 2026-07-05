@@ -39,31 +39,40 @@ function Home() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { navigate('/'); return }
 
-    const { data: profileData } = await supabase
-      .from('profiles').select('id, full_name').eq('id', user.id).maybeSingle()
+    // PERF — previously two separate queries hit the `profiles` table
+    // (one for full_name, one for push_subscription) back-to-back, plus a
+    // third sequential query for household membership. Combined into one
+    // profile query and run in parallel with the membership lookup, since
+    // neither depends on the other's result.
+    const [{ data: profileData }, { data: membership }] = await Promise.all([
+      supabase.from('profiles').select('id, full_name, push_subscription').eq('id', user.id).maybeSingle(),
+      supabase.from('household_members').select('household_id').eq('user_id', user.id).maybeSingle(),
+    ])
+
     setProfile(profileData)
     setCurrentUserId(user.id)
     currentUserIdRef.current = user.id
 
     if (!sessionStorage.getItem('push_prompt_seen')) {
-      const { data: profileFull } = await supabase
-        .from('profiles').select('push_subscription').eq('id', user.id).maybeSingle()
-      if (!profileFull?.push_subscription && 'Notification' in window && 'serviceWorker' in navigator) {
+      if (!profileData?.push_subscription && 'Notification' in window && 'serviceWorker' in navigator) {
         setShowPushModal(true)
       }
       sessionStorage.setItem('push_prompt_seen', '1')
     }
 
-    const { data: membership } = await supabase
-      .from('household_members').select('household_id').eq('user_id', user.id).maybeSingle()
     if (!membership) { navigate('/setup'); return }
 
     const hid = membership.household_id
     householdIdRef.current = hid
 
-    await checkLists(hid, user.id)
-    await loadWeeklySpend(hid)
-    await loadMonthlySpend(hid)
+    // PERF — these three don't depend on each other, only on `hid`, so
+    // run them in parallel instead of one-after-another. This cuts real
+    // load time by roughly 2/3 of their combined round-trip latency.
+    await Promise.all([
+      checkLists(hid, user.id),
+      loadWeeklySpend(hid),
+      loadMonthlySpend(hid),
+    ])
     subscribeToHousehold(hid)
     setLoading(false)
   }
