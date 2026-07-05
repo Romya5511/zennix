@@ -156,7 +156,8 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
 
             {CATEGORIES.find(c => c.key === expanded)?.warning && (
               <p style={styles.warningNote}>
-                {CATEGORIES.find(c => c.key === expanded).warning}
+                <span style={styles.warningIcon}>⚠️</span>
+                <span>{CATEGORIES.find(c => c.key === expanded).warning}</span>
               </p>
             )}
 
@@ -280,9 +281,26 @@ const styles = {
   formHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   formTitle: { fontSize: '0.95rem', fontWeight: '700', color: '#111' },
   warningNote: {
-    fontSize: '0.78rem', fontWeight: '600', color: '#9C3B5E',
-    background: '#F3E1EA', border: '1px solid #e8c3d6', borderRadius: '10px',
-    padding: '0.6rem 0.75rem', margin: 0, lineHeight: '1.4',
+    fontFamily: 'Georgia, "Times New Roman", serif',
+    fontStyle: 'italic',
+    fontSize: '0.88rem',
+    fontWeight: '700',
+    color: '#7A1F3D',
+    background: '#FBEAF1',
+    border: '2px solid #9C3B5E',
+    borderRadius: '10px',
+    padding: '0.75rem 0.85rem',
+    margin: 0,
+    lineHeight: '1.45',
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '0.5rem',
+  },
+  warningIcon: {
+    fontStyle: 'normal',
+    fontSize: '1.1rem',
+    flexShrink: 0,
+    lineHeight: 1,
   },
   closeBtn: {
     background: 'none', border: 'none', fontSize: '1rem', color: '#aaa', cursor: 'pointer', padding: '0.2rem',
