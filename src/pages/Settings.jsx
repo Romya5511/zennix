@@ -62,6 +62,14 @@ function Settings() {
 
   const isSolo = members.length < 2
 
+  // NEW — the only working signOut() in the codebase lived in the unused
+  // Dashboard.jsx (not wired to any route). This is the first reachable
+  // Sign Out in the live app.
+  async function handleSignOut() {
+    await supabase.auth.signOut()
+    navigate('/')
+  }
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -121,6 +129,19 @@ function Settings() {
           Note: your phone's silent/vibrate switch can't be read by web apps,
           so this toggle is the reliable way to turn sound on or off here.
         </p>
+
+        <p style={{ ...styles.sectionLabel, marginTop: '1.5rem' }}>ACCOUNT</p>
+        <div style={styles.row}>
+          <div style={styles.rowText}>
+            <span style={styles.rowLabel}>Signed in</span>
+            <span style={styles.rowHint}>
+              If this device is shared, or you manage more than one household, sign out here to switch accounts.
+            </span>
+          </div>
+          <button style={styles.signOutBtn} onClick={handleSignOut}>
+            Sign out
+          </button>
+        </div>
       </div>
 
       <div style={{ height: '80px' }} />
@@ -146,6 +167,11 @@ const styles = {
   inviteBtn: {
     padding: '0.55rem 1rem', fontSize: '0.85rem', fontWeight: '700',
     background: '#25D366', color: '#fff', border: 'none', borderRadius: '999px',
+    cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
+  },
+  signOutBtn: {
+    padding: '0.55rem 1rem', fontSize: '0.85rem', fontWeight: '700',
+    background: '#fff', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '999px',
     cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
   },
   toggle: {

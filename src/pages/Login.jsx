@@ -7,9 +7,18 @@ function Login() {
       ? `https://zennix.in/join`
       : `https://zennix.in/`
 
+    // FIX — without queryParams.prompt, Google silently reuses whichever
+    // account is already active in this browser/webview instead of
+    // letting the person choose. This matters when multiple people share
+    // a device, or one person manages more than one household — the app
+    // was silently signing in as "whoever was last active" with no way
+    // to pick a different account.
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo }
+      options: {
+        redirectTo,
+        queryParams: { prompt: 'select_account' },
+      }
     })
   }
 
