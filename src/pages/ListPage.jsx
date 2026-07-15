@@ -381,6 +381,15 @@ function ListPage() {
   const [savingPricing, setSavingPricing] = useState(false)
   const [swipedItemId, setSwipedItemId] = useState(null)
 
+  // NEW — lump-sum grouping: select multiple Pricing-tab items and enter
+  // one combined total instead of pricing each individually.
+  const [pricingSelected, setPricingSelected] = useState({}) // { [itemId]: true }
+  const [showLumpModal, setShowLumpModal] = useState(false)
+  const [lumpAmount, setLumpAmount] = useState('')
+  const [savingLump, setSavingLump] = useState(false)
+  const [groupTotals, setGroupTotals] = useState({}) // { [household_bucket.id]: amount }
+  const [undoingGroupId, setUndoingGroupId] = useState(null)
+
   const listIdRef = useRef(isNew ? null : id)
   const householdIdRef = useRef(null)
   const userIdRef = useRef(null)
@@ -397,6 +406,10 @@ function ListPage() {
     setDupWarning('')
     setSwipedItemId(null)
     setListStatus('active')
+    setPricingSelected({})
+    setShowLumpModal(false)
+    setLumpAmount('')
+    setGroupTotals({})
     setLoading(true)
     setListId(isNew ? null : id)
     listIdRef.current = isNew ? null : id
@@ -430,6 +443,7 @@ function ListPage() {
             .eq('list_id', lid)
             .order('display_order', { ascending: true })
           setListItems(data || [])
+          loadGroupTotals(data || [])
         }
       )
       .on(
@@ -445,6 +459,22 @@ function ListPage() {
       )
       .subscribe()
     channelRef.current = channel
+  }
+
+  // NEW — grouped (lump-sum) items have no individual price_entered, so
+  // their display amount lives on the shared household_bucket row instead.
+  // This fetches those amounts by price_group_id so the Done tab can show
+  // "🧾 3 items — ₹850" style cards.
+  async function loadGroupTotals(items) {
+    const groupIds = [...new Set(items.filter(i => i.price_group_id).map(i => i.price_group_id))]
+    if (groupIds.length === 0) { setGroupTotals({}); return }
+    const { data } = await supabase
+      .from('household_bucket')
+      .select('id, amount')
+      .in('id', groupIds)
+    const map = {}
+    ;(data || []).forEach(row => { map[row.id] = parseFloat(row.amount) || 0 })
+    setGroupTotals(map)
   }
 
   async function setup() {
@@ -489,6 +519,7 @@ function ListPage() {
         .eq('list_id', id)
         .order('display_order', { ascending: true })
       setListItems(items || [])
+      loadGroupTotals(items || [])
 
       // also fetch notification_seen_by so we can mark this user as seen
       const { data: listRow } = await supabase
@@ -964,10 +995,182 @@ function ListPage() {
     setSavingPricing(false)
   }
 
+  // NEW — lump-sum grouping functions
+
+  function toggleLumpSelect(itemId) {
+    setPricingSelected(prev => {
+      const next = { ...prev }
+      if (next[itemId]) {
+        delete next[itemId]
+      } else {
+        next[itemId] = true
+        // Selecting an item for group pricing is mutually exclusive with
+        // typing an individual price for it — clear any typed value so
+        // there's no ambiguity about which path wins.
+        setPricingInputs(p => {
+          const np = { ...p }
+          delete np[itemId]
+          return np
+        })
+      }
+      return next
+    })
+  }
+
+  async function saveLumpSum() {
+    const parsed = parseFloat(lumpAmount)
+    const selectedIds = Object.keys(pricingSelected)
+    if (!lumpAmount || isNaN(parsed) || parsed <= 0 || selectedIds.length === 0 || savingLump) return
+    setSavingLump(true)
+
+    const uid = userIdRef.current
+    const hid = householdIdRef.current
+    const currentListId = listIdRef.current
+    const now = new Date().toISOString()
+    const selectedItems = pricingItems.filter(i => selectedIds.includes(i.id))
+    const groupLabel = selectedItems.length === 1
+      ? selectedItems[0].item_name
+      : `${selectedItems.length} items (${selectedItems.map(i => i.item_name).join(', ')})`
+
+    // One shared household_bucket row for the whole group — this is the
+    // "lump total" your chosen design keeps items individually priceless
+    // against. list_item_id stays null here since it's not tied to one item.
+    const { data: bucketRow, error: bucketError } = await supabase
+      .from('household_bucket')
+      .insert({
+        household_id: hid,
+        source_type: 'grocery_list',
+        source_id: currentListId,
+        category: 'Grocery',
+        item_name: groupLabel,
+        quantity: String(selectedItems.length),
+        amount: parsed,
+        bought_by: uid,
+        bought_at: now,
+      })
+      .select()
+      .single()
+
+    if (bucketError || !bucketRow) {
+      setSavingLump(false)
+      return
+    }
+
+    await supabase
+      .from('list_items')
+      .update({
+        tab_status: 'done',
+        price_group_id: bucketRow.id,
+        price_entered: null,
+        price_entered_by: uid,
+        price_entered_at: now,
+      })
+      .in('id', selectedIds)
+
+    setListItems(prev =>
+      prev.map(i =>
+        selectedIds.includes(i.id)
+          ? { ...i, tab_status: 'done', price_group_id: bucketRow.id, price_entered: null, price_entered_by: uid, price_entered_at: now }
+          : i
+      )
+    )
+    setGroupTotals(prev => ({ ...prev, [bucketRow.id]: parsed }))
+
+    fireSaveDelight(parsed)
+
+    // Same self-healing completion check used everywhere else — a lump
+    // group can complete the list just as much as individually priced items.
+    const { completed, total } = await checkAndCompleteList(currentListId, uid)
+    if (completed) {
+      setListStatus('completed')
+      const { data: completionProfile } = await supabase
+        .from('profiles').select('full_name').eq('id', uid).maybeSingle()
+      const completionName = completionProfile?.full_name?.split(' ')[0] || 'Someone'
+      await sendPush({
+        householdId: hid,
+        senderId: uid,
+        title: '🎉 List complete!',
+        body: `${completionName} finished the list. Total: ₹${total.toFixed(0)}.`,
+        url: `/list/${currentListId}?tab=done`,
+      })
+    }
+
+    setPricingSelected({})
+    setLumpAmount('')
+    setShowLumpModal(false)
+    setSavingLump(false)
+  }
+
+  // NEW — Option A: undo dissolves the whole group at any time (not just
+  // right after grouping). Deletes the shared lump-sum entry, sends every
+  // item in that group back to the Pricing tab, un-links them so they can
+  // be individually priced or re-grouped differently.
+  async function undoGroup(groupId) {
+    if (undoingGroupId) return
+    setUndoingGroupId(groupId)
+
+    const groupItemIds = listItems.filter(i => i.price_group_id === groupId).map(i => i.id)
+
+    await supabase
+      .from('list_items')
+      .update({
+        tab_status: 'pricing',
+        price_group_id: null,
+        price_entered: null,
+        price_entered_by: null,
+        price_entered_at: null,
+      })
+      .in('id', groupItemIds)
+
+    await supabase
+      .from('household_bucket')
+      .delete()
+      .eq('id', groupId)
+
+    setListItems(prev =>
+      prev.map(i =>
+        groupItemIds.includes(i.id)
+          ? { ...i, tab_status: 'pricing', price_group_id: null, price_entered: null, price_entered_by: null, price_entered_at: null }
+          : i
+      )
+    )
+    setGroupTotals(prev => {
+      const next = { ...prev }
+      delete next[groupId]
+      return next
+    })
+
+    // If the list had already completed, undoing a group means it's no
+    // longer fully done — reopen it rather than leaving a "completed"
+    // list with items sitting back in Pricing.
+    const currentListId = listIdRef.current
+    if (listStatus === 'completed') {
+      await supabase
+        .from('grocery_lists')
+        .update({ status: 'active', completed_at: null })
+        .eq('id', currentListId)
+      setListStatus('active')
+    }
+    await recalcListTotal(currentListId)
+
+    setUndoingGroupId(null)
+  }
+
   const toBuyItems = listItems.filter(i => i.tab_status === 'to_buy')
   const pricingItems = listItems.filter(i => i.tab_status === 'pricing')
   const doneItems = listItems.filter(i => i.tab_status === 'done')
   const anyTicked = toBuyItems.some(i => i.is_ticked)
+
+  // NEW — split Done items into individually-priced vs grouped-by-lump-sum
+  const individualDoneItems = doneItems.filter(i => !i.price_group_id)
+  const groupedDoneItems = (() => {
+    const groups = {}
+    doneItems.filter(i => i.price_group_id).forEach(i => {
+      if (!groups[i.price_group_id]) groups[i.price_group_id] = []
+      groups[i.price_group_id].push(i)
+    })
+    return groups
+  })()
 
   const filteredLibrary = libraryItems.filter(item =>
     item.item_name.toLowerCase().includes(search.toLowerCase())
@@ -1105,16 +1308,31 @@ function ListPage() {
                 No items here yet. Tick items in To Buy and tap Save changes.
               </p>
             ) : (
-              pricingItems.map(item => (
-                <div key={item.id} style={styles.pricingRow}>
+              pricingItems.map(item => {
+                const isLumpSelected = !!pricingSelected[item.id]
+                return (
+                <div key={item.id} style={isLumpSelected ? { ...styles.pricingRow, ...styles.pricingRowSelected } : styles.pricingRow}>
+                  {/* NEW — checkbox to select this item for a combined
+                      lump-sum total instead of pricing it individually */}
+                  {listStatus !== 'completed' && (
+                    <button
+                      style={isLumpSelected ? { ...styles.lumpCheckbox, ...styles.lumpCheckboxActive } : styles.lumpCheckbox}
+                      onClick={() => toggleLumpSelect(item.id)}
+                      aria-label={isLumpSelected ? 'Deselect for combined total' : 'Select for combined total'}
+                    >
+                      {isLumpSelected ? '✓' : ''}
+                    </button>
+                  )}
                   <div style={styles.pricingLeft}>
                     <span style={styles.itemName}>{item.item_name}</span>
                     <span style={styles.pricingMeta}>
-                      {profiles[item.ticked_by]
-                        ? `Bought by ${firstName(profiles[item.ticked_by])}`
-                        : 'Bought'
+                      {isLumpSelected
+                        ? 'Selected for combined total'
+                        : (profiles[item.ticked_by]
+                          ? `Bought by ${firstName(profiles[item.ticked_by])}`
+                          : 'Bought')
                       }
-                      {item.ticked_at ? ` · ${timeAgo(item.ticked_at)}` : ''}
+                      {!isLumpSelected && item.ticked_at ? ` · ${timeAgo(item.ticked_at)}` : ''}
                     </span>
                   </div>
                   <input
@@ -1122,20 +1340,22 @@ function ListPage() {
                     value={item.quantity || ''}
                     onChange={e => updateQty(item.id, e.target.value)}
                     placeholder="Qty"
+                    disabled={isLumpSelected}
                   />
                   <div style={styles.priceWrapper}>
                     <span style={styles.rupeeSymbol}>₹</span>
                     <input
                       style={styles.priceInput}
                       type="number"
-                      placeholder={listStatus === 'completed' ? '—' : 'Price'}
+                      placeholder={listStatus === 'completed' ? '—' : isLumpSelected ? 'grouped' : 'Price'}
                       min="0"
                       value={pricingInputs[item.id] || ''}
                       onChange={e => {
                         if (listStatus === 'completed') return
                         setPricingInputs(prev => ({ ...prev, [item.id]: e.target.value }))
                       }}
-                      readOnly={listStatus === 'completed'}
+                      readOnly={listStatus === 'completed' || isLumpSelected}
+                      disabled={isLumpSelected}
                     />
                   </div>
                   {/* Move back to To Buy button */}
@@ -1190,6 +1410,11 @@ function ListPage() {
                           delete next[item.id]
                           return next
                         })
+                        setPricingSelected(prev => {
+                          const next = { ...prev }
+                          delete next[item.id]
+                          return next
+                        })
                         // Total may have changed if this item had already
                         // been priced once before being moved back.
                         await recalcListTotal(listIdRef.current)
@@ -1199,7 +1424,7 @@ function ListPage() {
                     </button>
                   )}
                 </div>
-              ))
+              )})
             )}
           </div>
         )}
@@ -1216,15 +1441,44 @@ function ListPage() {
                 <div style={styles.totalBar}>
                   <span style={styles.totalLabel}>Total so far</span>
                   <span style={styles.totalAmount}>
-                    ₹{doneItems.reduce((sum, i) => {
-                      const edited = doneEdits[i.id]
-                      const price = edited ? parseFloat(edited.price) || 0 : parseFloat(i.price_entered) || 0
-                      return sum + price
-                    }, 0).toFixed(2)}
+                    ₹{(
+                      individualDoneItems.reduce((sum, i) => {
+                        const edited = doneEdits[i.id]
+                        const price = edited ? parseFloat(edited.price) || 0 : parseFloat(i.price_entered) || 0
+                        return sum + price
+                      }, 0)
+                      + Object.values(groupTotals).reduce((sum, v) => sum + (parseFloat(v) || 0), 0)
+                    ).toFixed(2)}
                   </span>
                 </div>
 
-                {doneItems.map(item => {
+                {/* NEW — grouped (lump-sum) cards, shown above individually
+                    priced items so they're easy to spot and undo. */}
+                {Object.entries(groupedDoneItems).map(([groupId, items]) => (
+                  <div key={groupId} style={styles.groupCard}>
+                    <div style={styles.groupCardTop}>
+                      <span style={styles.groupCardIcon}>🧾</span>
+                      <span style={styles.groupCardTitle}>{items.length} items grouped</span>
+                      <span style={styles.groupCardAmount}>
+                        ₹{(groupTotals[groupId] ?? 0).toFixed(2)}
+                      </span>
+                    </div>
+                    <p style={styles.groupCardNames}>
+                      {items.map(i => i.item_name).join(', ')}
+                    </p>
+                    {listStatus !== 'completed' && (
+                      <button
+                        style={styles.groupUndoBtn}
+                        onClick={() => undoGroup(groupId)}
+                        disabled={undoingGroupId === groupId}
+                      >
+                        {undoingGroupId === groupId ? 'Undoing…' : '↩ Undo group — re-select & price'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+                {individualDoneItems.map(item => {
                   const isEditing = !!doneEdits[item.id]
                   const editState = doneEdits[item.id] || {
                     qty: item.quantity || '',
@@ -1317,6 +1571,20 @@ function ListPage() {
             disabled={savingChanges}
           >
             {savingChanges ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      )}
+
+      {/* NEW — lump-sum selection bar: shows whenever 1+ items are
+          checked for a combined total, independent of the per-item
+          Save changes bar below (which handles typed individual prices). */}
+      {activeTab === 'pricing' && Object.keys(pricingSelected).length > 0 && listStatus !== 'completed' && (
+        <div style={styles.saveBar}>
+          <button
+            style={styles.lumpBarBtn}
+            onClick={() => setShowLumpModal(true)}
+          >
+            Enter total for {Object.keys(pricingSelected).length} item{Object.keys(pricingSelected).length > 1 ? 's' : ''}
           </button>
         </div>
       )}
@@ -1432,6 +1700,46 @@ function ListPage() {
               />
             </div>
 
+          </div>
+        </>
+      )}
+
+      {/* NEW — lump-sum entry popup, same fixed-overlay pattern used
+          elsewhere in the app (Quick Log) so it doesn't shift the page. */}
+      {showLumpModal && (
+        <>
+          <div style={styles.overlay} onClick={() => { if (!savingLump) setShowLumpModal(false) }} />
+          <div style={styles.lumpModal}>
+            <div style={styles.handle} />
+            <div style={styles.sheetHeader}>
+              <p style={styles.sheetTitle}>
+                Total for {Object.keys(pricingSelected).length} item{Object.keys(pricingSelected).length > 1 ? 's' : ''}
+              </p>
+              <button style={styles.closeBtn} onClick={() => setShowLumpModal(false)} disabled={savingLump}>✕</button>
+            </div>
+            <p style={styles.lumpItemList}>
+              {pricingItems.filter(i => pricingSelected[i.id]).map(i => i.item_name).join(', ')}
+            </p>
+            <div style={styles.priceWrapper}>
+              <span style={styles.rupeeSymbol}>₹</span>
+              <input
+                style={styles.priceInput}
+                type="number"
+                min="0"
+                placeholder="Total amount"
+                value={lumpAmount}
+                onChange={e => setLumpAmount(e.target.value)}
+                autoFocus
+                disabled={savingLump}
+              />
+            </div>
+            <button
+              style={savingLump || !lumpAmount ? { ...styles.saveBtn, opacity: 0.6, marginTop: '1rem' } : { ...styles.saveBtn, marginTop: '1rem' }}
+              onClick={saveLumpSum}
+              disabled={savingLump || !lumpAmount}
+            >
+              {savingLump ? 'Saving…' : 'Save total'}
+            </button>
           </div>
         </>
       )}
@@ -1564,6 +1872,93 @@ const styles = {
     padding: '0.75rem 1rem',
     marginBottom: '0.5rem',
     boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+  },
+  pricingRowSelected: {
+    background: '#eff6ff',
+    boxShadow: '0 0 0 2px #4f46e5',
+  },
+  lumpCheckbox: {
+    width: '26px',
+    height: '26px',
+    borderRadius: '8px',
+    border: '2px solid #d1d5db',
+    background: '#fff',
+    color: '#fff',
+    fontSize: '0.9rem',
+    fontWeight: '700',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    padding: 0,
+  },
+  lumpCheckboxActive: {
+    background: '#4f46e5',
+    borderColor: '#4f46e5',
+    color: '#fff',
+  },
+  lumpBarBtn: {
+    width: '100%',
+    padding: '0.85rem',
+    fontSize: '1rem',
+    fontWeight: '700',
+    background: '#111',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '12px',
+    cursor: 'pointer',
+  },
+  lumpModal: {
+    position: 'fixed',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    width: '90%',
+    maxWidth: '380px',
+    background: '#fff',
+    borderRadius: '20px',
+    padding: '1.25rem',
+    boxShadow: '0 8px 40px rgba(0,0,0,0.2)',
+    zIndex: 110,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.9rem',
+  },
+  lumpItemList: {
+    fontSize: '0.82rem',
+    color: '#6b7280',
+    margin: 0,
+    lineHeight: '1.5',
+  },
+  groupCard: {
+    background: '#fffbeb',
+    border: '1px solid #fde68a',
+    borderRadius: '14px',
+    padding: '0.85rem 1rem',
+    marginBottom: '0.6rem',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
+  },
+  groupCardTop: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+  },
+  groupCardIcon: { fontSize: '1.1rem' },
+  groupCardTitle: { flex: 1, fontSize: '0.9rem', fontWeight: '700', color: '#92400e' },
+  groupCardAmount: { fontSize: '1rem', fontWeight: '800', color: '#111' },
+  groupCardNames: { fontSize: '0.8rem', color: '#78716c', margin: 0, lineHeight: '1.4' },
+  groupUndoBtn: {
+    alignSelf: 'flex-start',
+    background: 'none',
+    border: 'none',
+    color: '#b45309',
+    fontSize: '0.8rem',
+    fontWeight: '700',
+    cursor: 'pointer',
+    padding: '0.2rem 0',
   },
   pricingLeft: {
     flex: 1,
