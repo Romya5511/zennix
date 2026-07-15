@@ -284,19 +284,30 @@ const listLoadStyles = {
   },
 }
 
-// ── Helper: recompute the true total from list_items and write it to
+// ── Helper: recompute the true total and write it to
 //    grocery_lists.total_amount. Called unconditionally (active OR
-//    completed) any time a price is entered or a Done row is edited.
+//    completed) any time a price is entered, a Done row is edited, or a
+//    lump-sum group is created/undone.
 //    FIX D — closes the "stale total after post-completion edit" bug.
+//    FIX (lump-sum) — sums from household_bucket instead of
+//    list_items.price_entered. Grouped items deliberately have
+//    price_entered = null (per design), so summing price_entered alone
+//    silently excluded every lump-sum group from grocery_lists.total_amount
+//    — which is what History's list cards and Home's completed-list card
+//    both read. household_bucket already holds one correctly-amounted row
+//    per individually-priced item AND per group (both tagged with
+//    source_id = this list's id), so summing there is the single source
+//    of truth that covers both cases without special-casing either.
 async function recalcListTotal(listId) {
   if (!listId) return 0
-  const { data: allItems } = await supabase
-    .from('list_items')
-    .select('price_entered')
-    .eq('list_id', listId)
+  const { data: bucketRows } = await supabase
+    .from('household_bucket')
+    .select('amount')
+    .eq('source_type', 'grocery_list')
+    .eq('source_id', listId)
 
-  const total = (allItems || []).reduce(
-    (sum, i) => sum + (parseFloat(i.price_entered) || 0), 0
+  const total = (bucketRows || []).reduce(
+    (sum, i) => sum + (parseFloat(i.amount) || 0), 0
   )
 
   await supabase
