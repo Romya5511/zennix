@@ -1,34 +1,29 @@
 import { useNavigate, useLocation } from 'react-router-dom'
+import { Home as HomeIcon, Calendar, BarChart3, History as HistoryIcon, Settings as SettingsIcon } from 'lucide-react'
 
 function BottomNav() {
   const navigate = useNavigate()
   const location = useLocation()
   const path = location.pathname
 
+  // NEW — Stage 2 of the design pass: real vector icons instead of emoji.
+  // One deliberate correction along the way: History was previously shown
+  // with 🛒 (a shopping-cart emoji, which never actually matched "History"
+  // as a concept — it was really just borrowed from the grocery flow).
+  // Lucide's own History icon (clock with a rewind arrow) is the
+  // semantically correct choice here, not just a re-skin.
   const tabs = [
-    { label: 'Home', icon: '🏠', route: '/' },
-    { label: 'Fixed Costs', icon: '📅', route: '/fixed-costs' },
-    { label: 'Spend', icon: '📊', route: '/spend' },
-    { label: 'History', icon: '🛒', route: '/history' },
-    // NEW — Day 17: Settings tab, added at the end of the nav per the plan.
-    { label: 'Settings', icon: '⚙️', route: '/settings' },
+    { label: 'Home', Icon: HomeIcon, route: '/' },
+    { label: 'Fixed Costs', Icon: Calendar, route: '/fixed-costs' },
+    { label: 'Spend', Icon: BarChart3, route: '/spend' },
+    { label: 'History', Icon: HistoryIcon, route: '/history' },
+    { label: 'Settings', Icon: SettingsIcon, route: '/settings' },
   ]
 
-  // NEW — keeps the browser history stack shallow so the back button
-  // behaves predictably: one back from ANY tab returns to Home, and one
-  // more back from Home exits the app — instead of unwinding every tab
-  // you've visited in order (Settings → History → Spend → Home → exit).
-  //
-  // How: Home is always the one "anchor" entry at the bottom of the
-  // stack. Leaving Home pushes a single new entry. Switching between two
-  // non-Home tabs replaces that same entry instead of stacking a new one.
-  // Returning to Home goes back one step (collapsing the stacked entry)
-  // rather than pushing yet another entry on top.
-  //
-  // Caveat: this assumes normal in-app navigation starting from Home
-  // (true for typical use, and for how login/setup redirects work in this
-  // app). If someone opens a non-Home page directly via a bookmark or
-  // deep link, the very first back-tap's behavior may vary slightly.
+  // Keeps the browser history stack shallow so the back button behaves
+  // predictably: one back from ANY tab returns to Home, and one more back
+  // from Home exits the app — instead of unwinding every tab visited in
+  // order (Settings → History → Spend → Home → exit).
   function goToTab(route) {
     if (route === path) return
 
@@ -45,13 +40,18 @@ function BottomNav() {
     <div style={styles.nav}>
       {tabs.map(tab => {
         const isActive = path === tab.route
+        const Icon = tab.Icon
         return (
           <button
             key={tab.route}
             style={styles.tab}
             onClick={() => goToTab(tab.route)}
           >
-            <span style={styles.icon}>{tab.icon}</span>
+            <Icon
+              size={22}
+              strokeWidth={isActive ? 2.4 : 2}
+              color={isActive ? '#4f46e5' : '#9ca3af'}
+            />
             <span style={{
               ...styles.label,
               color: isActive ? '#4f46e5' : '#9ca3af',
@@ -87,14 +87,14 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: '0.2rem',
+    gap: '0.25rem',
     background: 'none',
     border: 'none',
     cursor: 'pointer',
     padding: '0.25rem 0.1rem',
     position: 'relative',
+    transition: 'transform 0.1s ease',
   },
-  icon: { fontSize: '1.35rem' },
   label: { fontSize: '0.62rem', textAlign: 'center', lineHeight: '1.2' },
   activeDot: {
     position: 'absolute',

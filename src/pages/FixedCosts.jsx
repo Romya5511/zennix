@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import BottomNav from '../components/BottomNav'
 import LoadingScreen from '../components/LoadingScreen'
 import { useSaveDelight } from '../components/SaveDelight'
+import { Trash2, Check, X } from 'lucide-react'
 
 const SUGGESTIONS = [
   'Rent', 'Electricity', 'WiFi', 'Gas', 'School fees',
@@ -58,10 +59,10 @@ function FCSwipeToDelete({ children, isOpen, onOpen, onClose, onDelete }) {
         justifyContent: 'center', borderRadius: '14px', zIndex: 0,
       }}>
         <button
-          style={{ background: 'none', border: 'none', color: '#fff', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer' }}
+          style={{ background: 'none', border: 'none', color: '#fff', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
           onTouchEnd={e => { e.stopPropagation(); onDelete() }}
           onClick={onDelete}
-        >🗑 Delete</button>
+        ><Trash2 size={14} /> Delete</button>
       </div>
       <div
         style={{ position: 'relative', zIndex: 1, transition: 'transform 0.22s ease', transform: isOpen ? 'translateX(-88px)' : 'translateX(0)' }}
@@ -375,7 +376,7 @@ function FixedCosts() {
                           {hoveredCostId === cost.id && (
                             <button style={styles.hoverTrashBtn}
                               onClick={e => { e.stopPropagation(); setConfirmDeleteId(cost.id) }}
-                              title="Delete">🗑</button>
+                              title="Delete"><Trash2 size={14} /></button>
                           )}
                         </div>
                       </div>
@@ -386,7 +387,7 @@ function FixedCosts() {
                       </span>
                       <div style={styles.paidRow}>
                         {paidThisMonth[cost.id] ? (
-                          <span style={styles.paidBadge}>✓ Paid this month</span>
+                          <span style={styles.paidBadge}><Check size={12} strokeWidth={3} style={{ verticalAlign: '-1px', marginRight: '2px' }} />Paid this month</span>
                         ) : markedPaid[cost.id] ? (
                           <button style={styles.undoBtn}
                             onClick={e => { e.stopPropagation(); toggleMarkedPaid(cost.id) }}
@@ -426,7 +427,7 @@ function FixedCosts() {
               <button key={s}
                 style={alreadyAdded ? { ...styles.chip, ...styles.chipAdded } : styles.chip}
                 onClick={() => handleChipTap(s)}>
-                {alreadyAdded ? '✓ ' : ''}{s}
+                {alreadyAdded ? <Check size={12} strokeWidth={3} style={{ verticalAlign: '-1px', marginRight: '2px' }} /> : ''}{s}
               </button>
             )
           })}
@@ -451,7 +452,7 @@ function FixedCosts() {
             <div style={styles.modalHandle} />
             <div style={styles.modalHeader}>
               <p style={styles.modalTitle}>Confirm payments</p>
-              <button style={styles.modalCloseBtn} onClick={() => setShowPaySheet(false)}>✕</button>
+              <button style={styles.modalCloseBtn} onClick={() => setShowPaySheet(false)}><X size={18} /></button>
             </div>
             <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '0 0 1.25rem' }}>
               Edit amounts if they differ from last month.
@@ -491,7 +492,7 @@ function FixedCosts() {
               <p style={styles.modalTitle}>
                 {editingCost ? `Edit ${selectedDescription}` : `Add ${selectedDescription}`}
               </p>
-              <button style={styles.modalCloseBtn} onClick={closeModal}>✕</button>
+              <button style={styles.modalCloseBtn} onClick={closeModal}><X size={18} /></button>
             </div>
             <div style={styles.fieldGroup}>
               <label style={styles.fieldLabel}>Reminder day (1–28)</label>

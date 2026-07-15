@@ -4,6 +4,7 @@ import { sendPush } from '../lib/push'
 import { supabase } from '../lib/supabase'
 import LoadingScreen from '../components/LoadingScreen'
 import { useSaveDelight } from '../components/SaveDelight'
+import { Trash2, Check, X, Undo2 } from 'lucide-react'
 
 const SEED_ITEMS = [
   'Atta', 'Doodh', 'Chawal', 'Dal', 'Chini', 'Namak', 'Tel', 'Sabzi',
@@ -82,11 +83,11 @@ function SwipeToDelete({ children, onDelete, isOpen, onOpen, onClose }) {
     <div style={swipeStyles.wrapper}>
       <div style={swipeStyles.deleteSlot}>
         <button
-          style={swipeStyles.deleteBtn}
+          style={{ ...swipeStyles.deleteBtn, display: 'flex', alignItems: 'center', gap: '0.3rem' }}
           onTouchEnd={e => { e.stopPropagation(); onClose(); onDelete() }}
           onClick={() => { onClose(); onDelete() }}
         >
-          🗑 Delete
+          <Trash2 size={14} /> Delete
         </button>
       </div>
       <div
@@ -1241,7 +1242,7 @@ function ListPage() {
                 <button
                   style={styles.dupBannerDismiss}
                   onClick={() => setDupWarning('')}
-                >✕</button>
+                ><X size={14} /></button>
               </div>
             )}
 
@@ -1302,7 +1303,7 @@ function ListPage() {
                       aria-label={item.is_ticked ? 'Untick item' : 'Tick item'}
                       disabled={listStatus === 'completed'}
                     >
-                      {item.is_ticked ? '✓' : ''}
+                      {item.is_ticked ? <Check size={16} strokeWidth={3} /> : ''}
                     </button>
                   </div>
                 </SwipeToDelete>
@@ -1331,7 +1332,7 @@ function ListPage() {
                       onClick={() => toggleLumpSelect(item.id)}
                       aria-label={isLumpSelected ? 'Deselect for combined total' : 'Select for combined total'}
                     >
-                      {isLumpSelected ? '✓' : ''}
+                      {isLumpSelected ? <Check size={14} strokeWidth={3} /> : ''}
                     </button>
                   )}
                   <div style={styles.pricingLeft}>
@@ -1431,7 +1432,7 @@ function ListPage() {
                         await recalcListTotal(listIdRef.current)
                       }}
                     >
-                      ↩
+                      <Undo2 size={16} />
                     </button>
                   )}
                 </div>
@@ -1479,11 +1480,11 @@ function ListPage() {
                     </p>
                     {listStatus !== 'completed' && (
                       <button
-                        style={styles.groupUndoBtn}
+                        style={{ ...styles.groupUndoBtn, display: 'flex', alignItems: 'center', gap: '0.3rem' }}
                         onClick={() => undoGroup(groupId)}
                         disabled={undoingGroupId === groupId}
                       >
-                        {undoingGroupId === groupId ? 'Undoing…' : '↩ Undo group — re-select & price'}
+                        {undoingGroupId === groupId ? 'Undoing…' : (<><Undo2 size={14} /> Undo group — re-select & price</>)}
                       </button>
                     )}
                   </div>
@@ -1663,7 +1664,7 @@ function ListPage() {
               <button
                 style={styles.closeBtn}
                 onClick={() => { setShowLibrary(false); setSearch('') }}
-              >✕</button>
+              ><X size={18} /></button>
             </div>
 
             {/* ── Chips — scrollable, above search ── */}
@@ -1693,7 +1694,7 @@ function ListPage() {
                         if (!inList && !adding) addItemFromLibrary(item)
                       }}
                     >
-                      {inList ? '✓ ' : ''}{item.item_name}
+                      {inList ? <Check size={12} strokeWidth={3} style={{ verticalAlign: '-1px', marginRight: '2px' }} /> : ''}{item.item_name}
                     </button>
                   )
                 })}
@@ -1726,7 +1727,7 @@ function ListPage() {
               <p style={styles.sheetTitle}>
                 Total for {Object.keys(pricingSelected).length} item{Object.keys(pricingSelected).length > 1 ? 's' : ''}
               </p>
-              <button style={styles.closeBtn} onClick={() => setShowLumpModal(false)} disabled={savingLump}>✕</button>
+              <button style={styles.closeBtn} onClick={() => setShowLumpModal(false)} disabled={savingLump}><X size={18} /></button>
             </div>
             <p style={styles.lumpItemList}>
               {pricingItems.filter(i => pricingSelected[i.id]).map(i => i.item_name).join(', ')}

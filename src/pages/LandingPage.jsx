@@ -1,12 +1,16 @@
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { ShoppingCart, Wallet, Calendar, BarChart3, Bell, Home as HomeIcon } from 'lucide-react'
 
 function LandingPage() {
   const navigate = useNavigate()
 
   async function handleGetStarted() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
+    // PERF — same fix applied across every other page: getSession() reads
+    // the session locally with no network round-trip, instead of
+    // getUser()'s server re-validation call.
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.user) {
       navigate('/')
     } else {
       navigate('/login')
@@ -14,12 +18,12 @@ function LandingPage() {
   }
 
   const features = [
-    { icon: '🛒', title: 'Shared grocery lists', desc: 'Create lists together. Both members see updates in real time.' },
-    { icon: '💰', title: 'Track every rupee', desc: 'Enter prices as you shop. See exactly where money goes.' },
-    { icon: '📅', title: 'Fixed costs sorted', desc: 'Rent, WiFi, electricity — never forget what\'s due this month.' },
-    { icon: '📊', title: 'Spend analytics', desc: 'Weekly and monthly charts. Know if you\'re spending too much.' },
-    { icon: '🔔', title: 'Push notifications', desc: 'Get notified when your partner starts or completes a list.' },
-    { icon: '🏠', title: 'Built for Indian homes', desc: 'Hindi item names, ₹ currency, designed for how Indian couples shop.' },
+    { Icon: ShoppingCart, title: 'Shared grocery lists', desc: 'Create lists together. Both members see updates in real time.' },
+    { Icon: Wallet, title: 'Track every rupee', desc: 'Enter prices as you shop. See exactly where money goes.' },
+    { Icon: Calendar, title: 'Fixed costs sorted', desc: 'Rent, WiFi, electricity — never forget what\'s due this month.' },
+    { Icon: BarChart3, title: 'Spend analytics', desc: 'Weekly and monthly charts. Know if you\'re spending too much.' },
+    { Icon: Bell, title: 'Push notifications', desc: 'Get notified when your partner starts or completes a list.' },
+    { Icon: HomeIcon, title: 'Built for Indian homes', desc: 'Hindi item names, ₹ currency, designed for how Indian couples shop.' },
   ]
 
   return (
@@ -88,7 +92,7 @@ function LandingPage() {
         <div style={styles.featureGrid}>
           {features.map((f, i) => (
             <div key={i} style={styles.featureCard}>
-              <span style={styles.featureIcon}>{f.icon}</span>
+              <span style={styles.featureIcon}><f.Icon size={26} color="#4f46e5" strokeWidth={1.8} /></span>
               <h3 style={styles.featureCardTitle}>{f.title}</h3>
               <p style={styles.featureCardDesc}>{f.desc}</p>
             </div>

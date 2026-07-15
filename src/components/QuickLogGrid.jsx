@@ -1,22 +1,28 @@
 import { useState } from 'react'
+import {
+  UtensilsCrossed, Car, ShoppingBag, Carrot, Clapperboard, Pill,
+  Drumstick, Coffee, Wine, Cigarette, Check, X, AlertTriangle,
+} from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
+// NEW — Stage 2 of the design pass: real vector icons instead of emoji,
+// for the same cross-device-consistency reason as BottomNav. Colors and
+// the underlying category keys are untouched — only how each is drawn.
 const CATEGORIES = [
-  { key: 'Food Delivery', emoji: '🍔', bg: '#FFE7E0', accent: '#E85D3E' },
-  { key: 'Transport', emoji: '🚕', bg: '#DFF4F1', accent: '#1E9E8F' },
-  { key: 'Online Shopping', emoji: '🛍️', bg: '#EEE4FB', accent: '#7C4FE0' },
-  { key: 'Fruits & Vegetables', emoji: '🥦', bg: '#E5F5E0', accent: '#3F9142' },
-  { key: 'Entertainment', emoji: '🎬', bg: '#FFF3D6', accent: '#C98A0A' },
-  { key: 'Medical', emoji: '💊', bg: '#FCE3EC', accent: '#D14C79' },
-  // NEW — added on request
-  { key: 'Fish/Meat/Egg', emoji: '🍗', bg: '#F6E3D3', accent: '#B8621B' },
-  { key: 'Tea/Coffee', emoji: '☕', bg: '#F0E4D6', accent: '#8B5E34' },
+  { key: 'Food Delivery', Icon: UtensilsCrossed, bg: '#FFE7E0', accent: '#E85D3E' },
+  { key: 'Transport', Icon: Car, bg: '#DFF4F1', accent: '#1E9E8F' },
+  { key: 'Online Shopping', Icon: ShoppingBag, bg: '#EEE4FB', accent: '#7C4FE0' },
+  { key: 'Fruits & Vegetables', Icon: Carrot, bg: '#E5F5E0', accent: '#3F9142' },
+  { key: 'Entertainment', Icon: Clapperboard, bg: '#FFF3D6', accent: '#C98A0A' },
+  { key: 'Medical', Icon: Pill, bg: '#FCE3EC', accent: '#D14C79' },
+  { key: 'Fish/Meat/Egg', Icon: Drumstick, bg: '#F6E3D3', accent: '#B8621B' },
+  { key: 'Tea/Coffee', Icon: Coffee, bg: '#F0E4D6', accent: '#8B5E34' },
   {
-    key: 'Liquor', emoji: '🍷', bg: '#F3E1EA', accent: '#9C3B5E',
+    key: 'Liquor', Icon: Wine, bg: '#F3E1EA', accent: '#9C3B5E',
     warning: "Can't listen to the people who raised you, but you'll listen to an app? Come on.",
   },
   {
-    key: 'Cigarettes', emoji: '🚬', bg: '#E9E6E2', accent: '#6B6660',
+    key: 'Cigarettes', Icon: Cigarette, bg: '#E9E6E2', accent: '#6B6660',
     warning: "Can't listen to the people who raised you, but you'll listen to an app? Come on.",
   },
 ]
@@ -112,6 +118,8 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
     if (onSaved) onSaved(parsed)
   }
 
+  const activeCat = CATEGORIES.find(c => c.key === expanded)
+
   return (
     <div style={styles.wrap}>
       <p style={styles.heading}>Quick log</p>
@@ -119,6 +127,7 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
         {CATEGORIES.map(cat => {
           const isOpen = expanded === cat.key
           const isPulsing = justSaved === cat.key
+          const CatIcon = cat.Icon
           return (
             <button
               key={cat.key}
@@ -131,10 +140,10 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
               onClick={() => openTile(cat.key)}
             >
               {isPulsing ? (
-                <span style={{ ...styles.checkmark, color: cat.accent }}>✓</span>
+                <Check size={26} strokeWidth={3} color={cat.accent} />
               ) : (
                 <>
-                  <span style={styles.emoji}>{cat.emoji}</span>
+                  <CatIcon size={24} strokeWidth={1.8} color={cat.accent} />
                   <span style={{ ...styles.label, color: cat.accent }}>{cat.key}</span>
                 </>
               )}
@@ -149,15 +158,18 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
           <div style={styles.modal}>
             <div style={styles.formHeader}>
               <span style={styles.formTitle}>
-                {CATEGORIES.find(c => c.key === expanded)?.emoji} {expanded}
+                {activeCat && <activeCat.Icon size={18} color={activeCat.accent} style={{ verticalAlign: 'middle', marginRight: '0.4rem' }} />}
+                {expanded}
               </span>
-              <button style={styles.closeBtn} onClick={cancel} disabled={saving}>✕</button>
+              <button style={styles.closeBtn} onClick={cancel} disabled={saving}>
+                <X size={18} />
+              </button>
             </div>
 
-            {CATEGORIES.find(c => c.key === expanded)?.warning && (
+            {activeCat?.warning && (
               <p style={styles.warningNote}>
-                <span style={styles.warningIcon}>⚠️</span>
-                <span>{CATEGORIES.find(c => c.key === expanded).warning}</span>
+                <AlertTriangle size={18} style={styles.warningIcon} />
+                <span>{activeCat.warning}</span>
               </p>
             )}
 
@@ -232,15 +244,13 @@ const styles = {
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '0.3rem',
+    gap: '0.4rem',
     cursor: 'pointer',
     boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
     transition: 'opacity 0.25s ease, transform 0.2s ease, box-shadow 0.2s ease',
     minHeight: '72px',
   },
-  emoji: { fontSize: '1.4rem', lineHeight: 1 },
   label: { fontSize: '0.68rem', fontWeight: '700', textAlign: 'center', lineHeight: '1.2' },
-  checkmark: { fontSize: '1.6rem', fontWeight: '800' },
   form: {
     background: '#fff',
     borderRadius: '16px',
@@ -279,7 +289,7 @@ const styles = {
     textAlign: 'center',
   },
   formHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  formTitle: { fontSize: '0.95rem', fontWeight: '700', color: '#111' },
+  formTitle: { fontSize: '0.95rem', fontWeight: '700', color: '#111', display: 'flex', alignItems: 'center' },
   warningNote: {
     fontFamily: 'Georgia, "Times New Roman", serif',
     fontStyle: 'italic',
@@ -297,13 +307,13 @@ const styles = {
     gap: '0.5rem',
   },
   warningIcon: {
-    fontStyle: 'normal',
-    fontSize: '1.1rem',
     flexShrink: 0,
-    lineHeight: 1,
+    color: '#9C3B5E',
+    marginTop: '0.1rem',
   },
   closeBtn: {
-    background: 'none', border: 'none', fontSize: '1rem', color: '#aaa', cursor: 'pointer', padding: '0.2rem',
+    background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', padding: '0.2rem',
+    display: 'flex', alignItems: 'center',
   },
   amountRow: {
     display: 'flex', alignItems: 'center', gap: '0.4rem',

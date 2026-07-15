@@ -6,6 +6,7 @@ import LoadingScreen from '../components/LoadingScreen'
 import QuickLogGrid from '../components/QuickLogGrid'
 import SettlingNumber from '../components/SettlingNumber'
 import { useSaveDelight } from '../components/SaveDelight'
+import { ShoppingCart, ArrowRight } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 function Home() {
@@ -250,7 +251,7 @@ function Home() {
             <p style={styles.spendSummaryChange}>{currentMonthLabel()}</p>
           </div>
 
-          <span style={styles.spendSummaryArrow}>→</span>
+          <span style={styles.spendSummaryArrow}><ArrowRight size={20} /></span>
         </div>
 
         {activeList ? (
@@ -260,7 +261,10 @@ function Home() {
               <span style={styles.listDate}>{formatDate(activeList.created_at)}</span>
             </div>
             <div style={styles.listCardBody}>
-              <p style={styles.listStat}>🛒 <strong>{itemCount}</strong> {itemCount === 1 ? 'item' : 'items'}</p>
+              <p style={styles.listStat}>
+                <ShoppingCart size={16} style={{ verticalAlign: '-3px', marginRight: '0.35rem' }} />
+                <strong>{itemCount}</strong> {itemCount === 1 ? 'item' : 'items'}
+              </p>
               <p style={styles.listCreator}>Created by {creatorName}</p>
             </div>
             <button style={styles.openListBtn} onClick={() => navigate(`/list/${activeList.id}`)}>
@@ -322,7 +326,7 @@ function Home() {
       {showUnseenModal && unseenList && (
         <div style={modalStyles.overlay}>
           <div style={modalStyles.modal}>
-            <div style={modalStyles.iconWrap}>🛒</div>
+            <div style={modalStyles.iconWrap}><ShoppingCart size={40} color="#4f46e5" /></div>
             <h2 style={modalStyles.title}>New grocery list!</h2>
             <p style={modalStyles.body}>
               <strong>{getFirstName(unseenList.creatorName)}</strong> started a grocery list

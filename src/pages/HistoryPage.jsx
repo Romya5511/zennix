@@ -3,6 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import BottomNav from '../components/BottomNav'
 import LoadingScreen from '../components/LoadingScreen'
+import {
+  BarChart3, UtensilsCrossed, Car, ShoppingBag, Carrot, Clapperboard,
+  Pill, Drumstick, Coffee, Wine, Cigarette, Receipt,
+  ChevronUp, ChevronDown, Check, ShoppingCart, Zap,
+} from 'lucide-react'
 
 const INCOME_BRACKETS = [
   { value: 'under_25k', label: 'Under ₹25,000' },
@@ -12,19 +17,19 @@ const INCOME_BRACKETS = [
   { value: 'above_2l', label: 'Above ₹2,00,000' },
 ]
 
-// Same category → emoji/color mapping used in QuickLogGrid.jsx, kept in
+// Same category → icon/color mapping used in QuickLogGrid.jsx, kept in
 // sync so History renders Quick Log entries consistently with Home.
 const QUICK_LOG_STYLE = {
-  'Food Delivery': { emoji: '🍔', accent: '#E85D3E' },
-  'Transport': { emoji: '🚕', accent: '#1E9E8F' },
-  'Online Shopping': { emoji: '🛍️', accent: '#7C4FE0' },
-  'Fruits & Vegetables': { emoji: '🥦', accent: '#3F9142' },
-  'Entertainment': { emoji: '🎬', accent: '#C98A0A' },
-  'Medical': { emoji: '💊', accent: '#D14C79' },
-  'Fish/Meat/Egg': { emoji: '🍗', accent: '#B8621B' },
-  'Tea/Coffee': { emoji: '☕', accent: '#8B5E34' },
-  'Liquor': { emoji: '🍷', accent: '#9C3B5E' },
-  'Cigarettes': { emoji: '🚬', accent: '#6B6660' },
+  'Food Delivery': { Icon: UtensilsCrossed, accent: '#E85D3E' },
+  'Transport': { Icon: Car, accent: '#1E9E8F' },
+  'Online Shopping': { Icon: ShoppingBag, accent: '#7C4FE0' },
+  'Fruits & Vegetables': { Icon: Carrot, accent: '#3F9142' },
+  'Entertainment': { Icon: Clapperboard, accent: '#C98A0A' },
+  'Medical': { Icon: Pill, accent: '#D14C79' },
+  'Fish/Meat/Egg': { Icon: Drumstick, accent: '#B8621B' },
+  'Tea/Coffee': { Icon: Coffee, accent: '#8B5E34' },
+  'Liquor': { Icon: Wine, accent: '#9C3B5E' },
+  'Cigarettes': { Icon: Cigarette, accent: '#6B6660' },
 }
 
 // ── Month name helper ────────────────────────────────────────────────────────
@@ -50,7 +55,7 @@ function IncomeBracketModal({ onSelect, onSkip }) {
   return (
     <div style={modalStyles.overlay}>
       <div style={modalStyles.modal}>
-        <p style={modalStyles.emoji}>📊</p>
+        <p style={modalStyles.emoji}><BarChart3 size={28} color="#4f46e5" /></p>
         <h2 style={modalStyles.title}>One quick question</h2>
         <p style={modalStyles.body}>
           What is your household's approximate monthly income?
@@ -111,14 +116,15 @@ function ListCard({ list, profiles }) {
           <span style={cardStyles.total}>
             ₹{parseFloat(list.total_amount || 0).toFixed(0)}
           </span>
-          <span style={cardStyles.chevron}>{expanded ? '▲' : '▼'}</span>
+          <span style={cardStyles.chevron}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
         </div>
       </div>
 
       {/* Item count pills */}
       <div style={cardStyles.pills}>
         <span style={cardStyles.pillGreen}>
-          ✓ {list.item_count || 0} bought
+          <Check size={12} strokeWidth={3} style={{ verticalAlign: '-1px', marginRight: '2px' }} />
+          {list.item_count || 0} bought
         </span>
         {list.status === 'completed' ? (
           <span style={cardStyles.pillGrey}>Complete</span>
@@ -178,11 +184,12 @@ function ListCard({ list, profiles }) {
 // NEW — Day 16: standalone Quick Log rows aren't part of any grocery_lists
 // row, so they get their own simple card instead of reusing ListCard.
 function QuickLogCard({ entry, profiles }) {
-  const style = QUICK_LOG_STYLE[entry.category] || { emoji: '💸', accent: '#6b7280' }
+  const style = QUICK_LOG_STYLE[entry.category] || { Icon: Receipt, accent: '#6b7280' }
+  const CatIcon = style.Icon
   return (
     <div style={cardStyles.quickLogCard}>
       <span style={{ ...cardStyles.quickLogEmoji, background: `${style.accent}1A` }}>
-        {style.emoji}
+        <CatIcon size={17} color={style.accent} />
       </span>
       <div style={cardStyles.quickLogInfo}>
         <span style={cardStyles.quickLogCategory}>{entry.category}</span>
@@ -420,7 +427,7 @@ function HistoryPage() {
 
         {lists.length === 0 ? (
           <div style={styles.emptyCard}>
-            <p style={styles.emptyIcon}>🛒</p>
+            <p style={styles.emptyIcon}><ShoppingCart size={32} color="#d1d5db" /></p>
             <p style={styles.emptyText}>No lists yet.</p>
             <p style={styles.emptySubText}>Complete your first grocery list to see it here.</p>
           </div>
@@ -440,7 +447,7 @@ function HistoryPage() {
 
         {quickLogs.length === 0 ? (
           <div style={styles.emptyCard}>
-            <p style={styles.emptyIcon}>⚡</p>
+            <p style={styles.emptyIcon}><Zap size={32} color="#d1d5db" /></p>
             <p style={styles.emptyText}>No quick logs yet.</p>
             <p style={styles.emptySubText}>Log a Food Delivery, Transport, or other spend from Home.</p>
           </div>

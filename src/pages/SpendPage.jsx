@@ -4,6 +4,10 @@ import { supabase } from '../lib/supabase'
 import BottomNav from '../components/BottomNav'
 import LoadingScreen from '../components/LoadingScreen'
 import SettlingNumber from '../components/SettlingNumber'
+import {
+  ShoppingCart, Calendar, UtensilsCrossed, Car, ShoppingBag, Carrot,
+  Clapperboard, Pill, Drumstick, Coffee, Wine, Cigarette, Receipt, X,
+} from 'lucide-react'
 
 function getFirstName(fullName) {
   if (!fullName) return 'Someone'
@@ -18,20 +22,20 @@ function formatEntryDate(dateStr) {
 // kept in sync with QuickLogGrid.jsx and HistoryPage.jsx so a category is
 // always the same color/icon everywhere the user sees it.
 const CATEGORY_META = {
-  'Grocery': { color: '#4f46e5', icon: '🛒' },
-  'Fixed Costs': { color: '#f59e0b', icon: '📅' },
-  'Food Delivery': { color: '#E85D3E', icon: '🍔' },
-  'Transport': { color: '#1E9E8F', icon: '🚕' },
-  'Online Shopping': { color: '#7C4FE0', icon: '🛍️' },
-  'Fruits & Vegetables': { color: '#3F9142', icon: '🥦' },
-  'Entertainment': { color: '#C98A0A', icon: '🎬' },
-  'Medical': { color: '#D14C79', icon: '💊' },
-  'Fish/Meat/Egg': { color: '#B8621B', icon: '🍗' },
-  'Tea/Coffee': { color: '#8B5E34', icon: '☕' },
-  'Liquor': { color: '#9C3B5E', icon: '🍷' },
-  'Cigarettes': { color: '#6B6660', icon: '🚬' },
+  'Grocery': { color: '#4f46e5', Icon: ShoppingCart },
+  'Fixed Costs': { color: '#f59e0b', Icon: Calendar },
+  'Food Delivery': { color: '#E85D3E', Icon: UtensilsCrossed },
+  'Transport': { color: '#1E9E8F', Icon: Car },
+  'Online Shopping': { color: '#7C4FE0', Icon: ShoppingBag },
+  'Fruits & Vegetables': { color: '#3F9142', Icon: Carrot },
+  'Entertainment': { color: '#C98A0A', Icon: Clapperboard },
+  'Medical': { color: '#D14C79', Icon: Pill },
+  'Fish/Meat/Egg': { color: '#B8621B', Icon: Drumstick },
+  'Tea/Coffee': { color: '#8B5E34', Icon: Coffee },
+  'Liquor': { color: '#9C3B5E', Icon: Wine },
+  'Cigarettes': { color: '#6B6660', Icon: Cigarette },
 }
-const FALLBACK_META = { color: '#6b7280', icon: '💸' }
+const FALLBACK_META = { color: '#6b7280', Icon: Receipt }
 
 function categoryOf(entry) {
   // category column is backfilled for all existing rows and always written
@@ -119,7 +123,7 @@ function CategoryBreakdown({ categories, total, profiles, expandedCat, onToggle,
               onClick={() => onToggle(cat.name)}
             >
               <span style={{ ...styles.categoryIconWrap, background: `${meta.color}1A` }}>
-                {meta.icon}
+                <meta.Icon size={17} color={meta.color} />
               </span>
               <div style={styles.categoryMid}>
                 <div style={styles.categoryTopLine}>
@@ -209,7 +213,7 @@ function MonthDetailModal({ monthLabel, entries, profiles, onClose }) {
         <div style={modalStyles.handle} />
         <div style={modalStyles.sheetHeader}>
           <p style={modalStyles.sheetTitle}>{monthLabel}</p>
-          <button style={modalStyles.closeBtn} onClick={onClose}>✕</button>
+          <button style={modalStyles.closeBtn} onClick={onClose}><X size={18} /></button>
         </div>
 
         <p style={modalStyles.grandTotal}>₹{grandTotal.toFixed(2)} total</p>
@@ -218,7 +222,7 @@ function MonthDetailModal({ monthLabel, entries, profiles, onClose }) {
         {Object.keys(fixedByName).length > 0 && (
           <div style={modalStyles.section}>
             <div style={modalStyles.sectionHeader}>
-              <span style={modalStyles.sectionIcon}>📅</span>
+              <span style={modalStyles.sectionIcon}><Calendar size={16} color="#f59e0b" /></span>
               <span style={modalStyles.sectionName}>Fixed Costs</span>
               <span style={modalStyles.sectionTotal}>₹{fixedTotal.toFixed(2)}</span>
             </div>
@@ -234,7 +238,7 @@ function MonthDetailModal({ monthLabel, entries, profiles, onClose }) {
         {/* Grocery section — ALL items, grouped by name */}
         <div style={modalStyles.section}>
           <div style={modalStyles.sectionHeader}>
-            <span style={modalStyles.sectionIcon}>🛒</span>
+            <span style={modalStyles.sectionIcon}><ShoppingCart size={16} color="#4f46e5" /></span>
             <span style={modalStyles.sectionName}>Grocery</span>
             <span style={modalStyles.sectionTotal}>₹{groceryTotal.toFixed(2)}</span>
           </div>
@@ -256,7 +260,7 @@ function MonthDetailModal({ monthLabel, entries, profiles, onClose }) {
           return (
             <div key={section.name} style={modalStyles.section}>
               <div style={modalStyles.sectionHeader}>
-                <span style={modalStyles.sectionIcon}>{meta.icon}</span>
+                <span style={modalStyles.sectionIcon}><meta.Icon size={16} color={meta.color} /></span>
                 <span style={modalStyles.sectionName}>{section.name}</span>
                 <span style={modalStyles.sectionTotal}>₹{section.total.toFixed(2)}</span>
               </div>
@@ -538,7 +542,7 @@ function SpendPage() {
 
         {entries.length === 0 && (
           <div style={styles.emptyCard}>
-            <p style={styles.emptyIcon}>🧾</p>
+            <p style={styles.emptyIcon}><Receipt size={32} color="#d1d5db" /></p>
             <p style={styles.emptyText}>No spend recorded yet.</p>
             <p style={styles.emptySubText}>Complete a grocery list, log a fixed cost, or Quick Log a spend to see it here.</p>
           </div>
