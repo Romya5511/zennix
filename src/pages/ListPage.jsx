@@ -215,7 +215,7 @@ const listLoadStyles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontFamily: 'sans-serif',
+    fontFamily: '"Inter", sans-serif',
   },
   card: {
     background: '#fff',
@@ -1765,7 +1765,7 @@ const styles = {
   page: {
     minHeight: '100vh',
     backgroundColor: '#f9fafb',
-    fontFamily: 'sans-serif',
+    fontFamily: '"Inter", sans-serif',
     paddingBottom: '100px',
   },
   header: {

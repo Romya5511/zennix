@@ -563,7 +563,7 @@ function SpendPage() {
 }
 
 const styles = {
-  page: { minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: 'sans-serif', paddingBottom: '2rem' },
+  page: { minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: '"Inter", sans-serif', paddingBottom: '2rem' },
   loadingText: { padding: '2rem', color: '#888', textAlign: 'center' },
   header: { display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem 1rem 0.75rem', background: '#fff', borderBottom: '1px solid #f3f4f6' },
   backBtn: { background: 'none', border: 'none', fontSize: '0.95rem', color: '#4f46e5', cursor: 'pointer', padding: 0, fontWeight: '600' },

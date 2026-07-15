@@ -468,7 +468,7 @@ function HistoryPage() {
 }
 
 const styles = {
-  page: { minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: 'sans-serif', paddingBottom: '2rem' },
+  page: { minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: '"Inter", sans-serif', paddingBottom: '2rem' },
   loadingText: { padding: '2rem', color: '#888', textAlign: 'center' },
   header: {
     padding: '1rem 1rem 0.75rem',

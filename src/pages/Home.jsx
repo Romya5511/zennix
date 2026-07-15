@@ -347,7 +347,7 @@ function Home() {
 }
 
 const styles = {
-  page: { minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: 'sans-serif', padding: 'clamp(0.75rem, 3vw, 1.5rem)' },
+  page: { minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: '"Inter", sans-serif', padding: 'clamp(0.75rem, 3vw, 1.5rem)' },
   container: { maxWidth: 'clamp(320px, 94vw, 560px)', margin: '0 auto', paddingTop: 'clamp(1.25rem, 4vw, 2rem)', display: 'flex', flexDirection: 'column', gap: 'clamp(1rem, 3vw, 1.5rem)' },
   greeting: { marginBottom: '0.5rem' },
   greetingText: { fontSize: 'clamp(1.25rem, 4vw, 1.75rem)', fontWeight: '700', color: '#111', margin: '0 0 0.25rem' },

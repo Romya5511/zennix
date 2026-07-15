@@ -127,7 +127,7 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#f9fafb',
-    fontFamily: 'sans-serif',
+    fontFamily: '"Inter", sans-serif',
     padding: '1rem',
   },
   card: {

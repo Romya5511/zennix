@@ -133,7 +133,7 @@ function LandingPage() {
 }
 
 const styles = {
-  page: { minHeight: '100vh', backgroundColor: '#fff', fontFamily: 'sans-serif' },
+  page: { minHeight: '100vh', backgroundColor: '#fff', fontFamily: '"Inter", sans-serif' },
 
   // Nav
   nav: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid #f3f4f6', position: 'sticky', top: 0, background: '#fff', zIndex: 10 },

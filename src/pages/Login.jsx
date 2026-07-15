@@ -29,7 +29,7 @@ function Login() {
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      fontFamily: 'sans-serif',
+      fontFamily: '"Inter", sans-serif',
       background: '#f9fafb'
     }}>
       <h1 style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#4F46E5' }}>

@@ -151,7 +151,7 @@ function Settings() {
 }
 
 const styles = {
-  page: { minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: 'sans-serif', paddingBottom: '2rem' },
+  page: { minHeight: '100vh', backgroundColor: '#f9fafb', fontFamily: '"Inter", sans-serif', paddingBottom: '2rem' },
   header: { padding: '1rem 1rem 0.75rem', background: '#fff', borderBottom: '1px solid #f3f4f6' },
   title: { fontSize: '1.1rem', fontWeight: '700', margin: 0, color: '#111' },
   content: { maxWidth: 'clamp(320px, 94vw, 560px)', margin: '0 auto', padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' },
