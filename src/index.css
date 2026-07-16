@@ -1,1 +1,37 @@
 @import "tailwindcss";
+
+/* NEW — Stage 3 of the design pass: global press-state feedback for
+   every tappable element in the app.
+
+   Uses `filter: brightness()` rather than `transform: scale()` — several
+   components already animate their own transform on press/select
+   (QuickLogGrid's category tiles, FixedCosts' highlighted tiles, the
+   Pricing-tab lump-selection rows), so a global transform-based press
+   effect would fight with those instead of layering on top cleanly.
+   Filter is untouched by any of that existing code, so it's safe to
+   apply everywhere at once with zero risk of conflicting.
+
+   Also removes the default grey/blue tap-highlight flash that Android
+   Chrome shows on every tap — small thing, but it's one of the more
+   obvious "this feels like a website, not an app" tells on mobile. */
+
+button,
+a,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:active,
+a:active,
+[role="button"]:active {
+  filter: brightness(0.92);
+  transition: filter 0.08s ease;
+}
+
+/* Disabled buttons shouldn't dim on press — they already communicate
+   "not interactive" via their own opacity styling, and browsers don't
+   fire :active on disabled elements anyway, but this makes the intent
+   explicit rather than relying on that default behavior alone. */
+button:disabled:active {
+  filter: none;
+}
