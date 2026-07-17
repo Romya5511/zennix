@@ -1,21 +1,25 @@
 import { useState } from 'react'
 import {
-  UtensilsCrossed, Car, ShoppingBag, Carrot, Clapperboard, Pill,
+  ShoppingCart, UtensilsCrossed, Car, ShoppingBag, Carrot, Clapperboard, Pill,
   Drumstick, Coffee, Wine, Cigarette, Check, X, AlertTriangle,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
-// NEW — Stage 2 of the design pass: real vector icons instead of emoji,
-// for the same cross-device-consistency reason as BottomNav. Colors and
-// the underlying category keys are untouched — only how each is drawn.
+// NEW — fixed manual order, per explicit request (supersedes the earlier
+// "auto-sort by most-used" idea — a predictable, self-chosen order was
+// preferred instead). Grocery uses the same indigo (#4f46e5) and cart
+// icon as "Grocery" everywhere else in the app (Spend, History), since
+// it's the exact same category concept — just logged via Quick Log
+// instead of an itemized list this time.
 const CATEGORIES = [
-  { key: 'Food Delivery', Icon: UtensilsCrossed, bg: '#FFE7E0', accent: '#E85D3E' },
-  { key: 'Transport', Icon: Car, bg: '#DFF4F1', accent: '#1E9E8F' },
-  { key: 'Online Shopping', Icon: ShoppingBag, bg: '#EEE4FB', accent: '#7C4FE0' },
+  { key: 'Grocery', Icon: ShoppingCart, bg: '#E3E1FA', accent: '#4f46e5' },
   { key: 'Fruits & Vegetables', Icon: Carrot, bg: '#E5F5E0', accent: '#3F9142' },
+  { key: 'Fish/Meat/Egg', Icon: Drumstick, bg: '#F6E3D3', accent: '#B8621B' },
+  { key: 'Food Delivery', Icon: UtensilsCrossed, bg: '#FFE7E0', accent: '#E85D3E' },
+  { key: 'Online Shopping', Icon: ShoppingBag, bg: '#EEE4FB', accent: '#7C4FE0' },
+  { key: 'Transport', Icon: Car, bg: '#DFF4F1', accent: '#1E9E8F' },
   { key: 'Entertainment', Icon: Clapperboard, bg: '#FFF3D6', accent: '#C98A0A' },
   { key: 'Medical', Icon: Pill, bg: '#FCE3EC', accent: '#D14C79' },
-  { key: 'Fish/Meat/Egg', Icon: Drumstick, bg: '#F6E3D3', accent: '#B8621B' },
   { key: 'Tea/Coffee', Icon: Coffee, bg: '#F0E4D6', accent: '#8B5E34' },
   {
     key: 'Liquor', Icon: Wine, bg: '#F3E1EA', accent: '#9C3B5E',
@@ -85,13 +89,19 @@ function QuickLogGrid({ householdId, userId, onSaved }) {
       ? new Date().toISOString()
       : new Date(y, m - 1, d, 12, 0, 0).toISOString()
 
+    // NEW — item_name is purely a display label here (category is what
+    // actually drives totals/grouping/icons everywhere, and stays
+    // untouched). For Grocery specifically, label it distinctly so it
+    // doesn't read as a real item name (like "Sabzi" or "Doodh") when it
+    // shows up mixed into an itemized grocery breakdown, e.g. Spend's
+    // month-detail view.
     const { error } = await supabase
       .from('household_bucket')
       .insert({
         household_id: householdId,
         source_type: 'quick_log',
         category: expanded,
-        item_name: expanded,
+        item_name: expanded === 'Grocery' ? 'Grocery (Quick Log)' : expanded,
         amount: parsed,
         bought_by: userId,
         bought_at: boughtAt,

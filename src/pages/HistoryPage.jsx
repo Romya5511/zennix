@@ -4,9 +4,9 @@ import { supabase } from '../lib/supabase'
 import BottomNav from '../components/BottomNav'
 import LoadingScreen from '../components/LoadingScreen'
 import {
-  BarChart3, UtensilsCrossed, Car, ShoppingBag, Carrot, Clapperboard,
+  BarChart3, ShoppingCart, UtensilsCrossed, Car, ShoppingBag, Carrot, Clapperboard,
   Pill, Drumstick, Coffee, Wine, Cigarette, Receipt,
-  ChevronUp, ChevronDown, Check, ShoppingCart, Zap,
+  ChevronUp, ChevronDown, Check, Zap,
 } from 'lucide-react'
 
 const INCOME_BRACKETS = [
@@ -20,6 +20,7 @@ const INCOME_BRACKETS = [
 // Same category → icon/color mapping used in QuickLogGrid.jsx, kept in
 // sync so History renders Quick Log entries consistently with Home.
 const QUICK_LOG_STYLE = {
+  'Grocery': { Icon: ShoppingCart, accent: '#4f46e5' },
   'Food Delivery': { Icon: UtensilsCrossed, accent: '#E85D3E' },
   'Transport': { Icon: Car, accent: '#1E9E8F' },
   'Online Shopping': { Icon: ShoppingBag, accent: '#7C4FE0' },
@@ -303,21 +304,28 @@ function HistoryPage() {
 
     const { data: monthBucket } = await supabase
       .from('household_bucket')
-      .select('amount, source_type')
+      .select('amount, source_type, category')
       .eq('household_id', hid)
       .gte('bought_at', monthStart)
       .lt('bought_at', monthEnd)
 
+    // FIX — this used to split by source_type (grocery_list / fixed_cost /
+    // quick_log), which meant a Quick-Log entry tagged category='Grocery'
+    // was counted under the "Quick Log" dot instead of "Grocery" — out of
+    // sync with the Spend tab, which correctly groups by category. Now
+    // both pages agree: what actually matters is the category a spend is
+    // tagged with, not which flow originally created it.
     const grocery = (monthBucket || [])
-      .filter(e => e.source_type === 'grocery_list')
+      .filter(e => (e.category || (e.source_type === 'grocery_list' ? 'Grocery' : null)) === 'Grocery')
       .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
     const fixed = (monthBucket || [])
-      .filter(e => e.source_type === 'fixed_cost')
+      .filter(e => (e.category || (e.source_type === 'fixed_cost' ? 'Fixed Costs' : null)) === 'Fixed Costs')
       .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
-    // NEW — Day 16: Quick Log's share of this month's total, so the
-    // month card total doesn't silently under-count Quick Log spend.
+    // "Quick Log" dot now means every OTHER Quick Log category combined
+    // (Food Delivery, Transport, etc.) — Grocery-tagged Quick Log entries
+    // are correctly excluded here since they're already counted above.
     const quickLog = (monthBucket || [])
-      .filter(e => e.source_type === 'quick_log')
+      .filter(e => e.source_type === 'quick_log' && e.category !== 'Grocery')
       .reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
 
     setMonthlyGrocery(grocery)
